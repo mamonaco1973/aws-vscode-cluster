@@ -132,6 +132,22 @@ These are deliberate choices, not oversights:
 - **`--auth none` on each `code-server`.** Safe only because every instance binds to loopback and the security group admits port 8080 from the ALB alone. The broker is the only path in. Do not widen the bind address.
 - **HTTP, not HTTPS.** The ALB listener is plain HTTP, matching the original lab. Session cookies therefore travel in the clear — add an ACM certificate and an HTTPS listener before using this anywhere real.
 
+### Licensing
+
+This project deliberately uses only the open-source path, which is what makes self-hosting a multi-user service viable:
+
+| Component | License | Notes |
+|-----------|---------|-------|
+| `code-server` | MIT (Coder) | Installed from the official upstream script |
+| Extension gallery | Open VSX (Eclipse) | Pinned explicitly in `/etc/vscode-gallery.env` |
+| Session broker | This repository | Written for this project |
+
+**Do not repoint `EXTENSIONS_GALLERY` at Microsoft's Marketplace.** The Marketplace terms permit access only from official Microsoft products, so that one change would make an otherwise lawful deployment non-compliant without altering any code. It is the realistic way this build gets broken — usually by someone chasing a single missing extension.
+
+Microsoft's own `code serve-web` / VS Code Server is under a proprietary license and is **not** interchangeable with `code-server` here, regardless of operating system.
+
+For extensions absent from Open VSX, obtain the `.vsix` from the publisher directly and stage it under `/efs/extensions`, where it is available to every node.
+
 ### Users and Groups
 
 As part of this project, when the domain controller is provisioned, a set of sample **users** and **groups** are automatically created through Terraform-provisioned scripts running on the mini-ad server. These resources are intended for **testing and demonstration purposes**, showcasing how to automate user and group provisioning in a self-managed Active Directory environment.

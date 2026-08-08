@@ -46,6 +46,24 @@ rm -f ./install-code-server.sh
 systemctl disable --now code-server@ubuntu.service 2>/dev/null || true
 
 # ------------------------------------------------------------------------------
+# Extension gallery — Open VSX, deliberately
+# ------------------------------------------------------------------------------
+# This is a licensing boundary, not a preference. code-server is MIT, but
+# Microsoft's Marketplace terms permit access only from official Microsoft
+# products, so pointing EXTENSIONS_GALLERY there would make a lawful build
+# unlawful without changing a line of code.
+#
+# Open VSX is code-server's default; setting it explicitly means a future
+# override has to be a deliberate act rather than an unnoticed default.
+# Extensions missing from Open VSX go through /efs/extensions as VSIX files
+# obtained from their publishers — never scraped from the Marketplace.
+cat <<'EOF' | tee /etc/vscode-gallery.env > /dev/null
+EXTENSIONS_GALLERY={"serviceUrl":"https://open-vsx.org/vscode/gallery","itemUrl":"https://open-vsx.org/vscode/item"}
+EOF
+
+chmod 0644 /etc/vscode-gallery.env
+
+# ------------------------------------------------------------------------------
 # Node-local per-user state root
 # ------------------------------------------------------------------------------
 # code-server keeps its state in SQLite. SQLite over NFS is the classic

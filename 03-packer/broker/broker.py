@@ -77,6 +77,11 @@ COOKIE_MAX_AGE = int(os.environ.get("COOKIE_MAX_AGE", "43200"))  # 12 hours
 # Bound on how long code-server may take to accept its first connection.
 SPAWN_TIMEOUT_SECONDS = 90
 
+# Extra environment handed to every code-server process. Written by the AMI
+# build, and in practice carries EXTENSIONS_GALLERY — the setting that keeps
+# extension installs pointed at Open VSX rather than Microsoft's Marketplace.
+GALLERY_ENV_FILE = os.environ.get("GALLERY_ENV_FILE", "/etc/vscode-gallery.env")
+
 # AD usernames reach systemd unit names and filesystem paths. Anything outside
 # this shape is rejected rather than escaped — the fleet only ever holds
 # POSIX-conventional names supplied by the mini-AD module.
@@ -135,6 +140,32 @@ class SessionManager:
     @staticmethod
     def _unit_name(user: str) -> str:
         return f"vscode-{user}"
+
+    @staticmethod
+    def _gallery_env() -> list[str]:
+        """Read the extension-gallery environment file into systemd-run args.
+
+        Returns:
+            A list of --setenv arguments, empty if the file is absent.
+        """
+        if not os.path.isfile(GALLERY_ENV_FILE):
+            log.warning("%s missing; code-server will use its built-in "
+                        "gallery default", GALLERY_ENV_FILE)
+            return []
+
+        args = []
+
+        with open(GALLERY_ENV_FILE, encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+
+                # Values are JSON and contain '=', so split on the first only.
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+
+                args.append(f"--setenv={line}")
+
+        return args
 
     @staticmethod
     def _unit_active(unit: str) -> bool:
@@ -203,6 +234,7 @@ class SessionManager:
             f"--uid={user}",
             f"--setenv=HOME={home}",
             f"--setenv=USER={user}",
+            *self._gallery_env(),
             # --collect drops the unit once it exits so a crashed session does
             # not leave a failed unit blocking the next login.
             "--collect",
