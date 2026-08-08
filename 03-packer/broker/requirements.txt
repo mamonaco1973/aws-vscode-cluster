@@ -11,5 +11,9 @@ websockets>=12,<16
 python-pam>=2.0.2,<3
 itsdangerous>=2.1,<3
 
+# python-pam imports six but does not declare it as a dependency, so pip
+# will not install it on its own. Without this the broker dies at import.
+six>=1.16
+
 # Required by FastAPI to parse the login form's multipart body.
 python-multipart>=0.0.9,<1

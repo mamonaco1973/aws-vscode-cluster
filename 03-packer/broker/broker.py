@@ -45,8 +45,8 @@ import httpx
 import pam
 import websockets
 from fastapi import FastAPI, Form, Request, WebSocket
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from starlette.background import BackgroundTask
 from starlette.websockets import WebSocketDisconnect
@@ -81,6 +81,11 @@ SPAWN_TIMEOUT_SECONDS = 90
 # build, and in practice carries EXTENSIONS_GALLERY — the setting that keeps
 # extension installs pointed at Open VSX rather than Microsoft's Marketplace.
 GALLERY_ENV_FILE = os.environ.get("GALLERY_ENV_FILE", "/etc/vscode-gallery.env")
+
+# Login page assets. Served from disk rather than inlined so the sign-in page
+# looks like an application rather than a single self-contained document —
+# see the note above the /static route.
+STATIC_DIR = os.environ.get("STATIC_DIR", "/opt/vscode-broker/static")
 
 # AD usernames reach systemd unit names and filesystem paths. Anything outside
 # this shape is rejected rather than escaped — the fleet only ever holds
@@ -443,29 +448,35 @@ async def start_reaper() -> None:
 
 LOGIN_PAGE = """
 <!doctype html>
-<title>VS Code Cluster</title>
-<style>
-  body {{ font-family: system-ui, sans-serif; background: #1e1e1e;
-         color: #ccc; display: flex; height: 100vh; margin: 0;
-         align-items: center; justify-content: center; }}
-  form {{ background: #252526; padding: 2rem 2.5rem; border-radius: 6px;
-          border: 1px solid #333; min-width: 300px; }}
-  h1 {{ font-size: 1.1rem; font-weight: 500; margin: 0 0 1.25rem; }}
-  input {{ display: block; width: 100%; box-sizing: border-box;
-           margin-bottom: .75rem; padding: .5rem; background: #3c3c3c;
-           border: 1px solid #3c3c3c; border-radius: 3px; color: #eee; }}
-  button {{ width: 100%; padding: .5rem; background: #0e639c; color: #fff;
-            border: 0; border-radius: 3px; cursor: pointer; }}
-  .err {{ color: #f48771; font-size: .85rem; margin-bottom: .75rem; }}
-</style>
-<form method="post" action="/login">
-  <h1>Sign in to VS Code</h1>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Development Environment</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="stylesheet" href="/static/broker.css">
+</head>
+<body>
+<main class="card">
+  <img class="logo" src="/static/logo.svg" alt="" width="44" height="44">
+  <h1>Development Environment</h1>
+  <p class="sub">Sign in with your domain account.</p>
   {error}
-  <input name="username" placeholder="Domain username" autofocus
-         autocapitalize="off" autocorrect="off">
-  <input name="password" type="password" placeholder="Password">
-  <button type="submit">Start session</button>
-</form>
+  <form method="post" action="/login">
+    <label for="username">Username</label>
+    <input id="username" name="username" autofocus autocapitalize="off"
+           autocorrect="off">
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password">
+    <button type="submit">Start session</button>
+  </form>
+  <nav class="links">
+    <a href="/healthz">Service status</a>
+    <a href="https://github.com/mamonaco1973/aws-vscode-cluster">Documentation</a>
+  </nav>
+</main>
+</body>
+</html>
 """
 
 
@@ -473,6 +484,22 @@ LOGIN_PAGE = """
 async def healthz() -> PlainTextResponse:
     """Answer ALB health checks without requiring a session."""
     return PlainTextResponse("ok")
+
+
+@app.get("/static/{name}")
+async def static_files(name: str) -> FileResponse:
+    """Serve login page assets.
+
+    Declared ahead of the catch-all proxy route, which would otherwise
+    swallow /static and try to forward it to a session that does not exist
+    yet. basename() keeps a crafted name from escaping the directory.
+    """
+    path = os.path.join(STATIC_DIR, os.path.basename(name))
+
+    if not os.path.isfile(path):
+        return PlainTextResponse("not found", status_code=404)
+
+    return FileResponse(path)
 
 
 @app.get("/login")

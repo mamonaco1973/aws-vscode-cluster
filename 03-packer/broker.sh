@@ -30,12 +30,18 @@ mkdir -p "${INSTALL_DIR}"
 cp /tmp/broker/broker.py "${INSTALL_DIR}/broker.py"
 cp /tmp/broker/requirements.txt "${INSTALL_DIR}/requirements.txt"
 
+# Login page assets (CSS, logo, favicon). Without these the sign-in page
+# renders unstyled — broker.py serves them from this directory.
+cp -r /tmp/broker/static "${INSTALL_DIR}/static"
+
 python3 -m venv "${INSTALL_DIR}/venv"
 "${INSTALL_DIR}/venv/bin/pip" install --upgrade pip
 "${INSTALL_DIR}/venv/bin/pip" install -r "${INSTALL_DIR}/requirements.txt"
 
 chmod 0755 "${INSTALL_DIR}"
 chmod 0644 "${INSTALL_DIR}/broker.py"
+chmod 0755 "${INSTALL_DIR}/static"
+chmod 0644 "${INSTALL_DIR}"/static/*
 
 # ------------------------------------------------------------------------------
 # Default configuration

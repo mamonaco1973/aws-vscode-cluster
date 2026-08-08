@@ -28,14 +28,23 @@ resource "aws_security_group" "vscode_sg" {
   description = "Allow session broker (port 8080) access from the ALB"
   vpc_id      = data.aws_vpc.ad_vpc.id
 
-  # Only the ALB may reach the broker. Per-user code-server instances listen
-  # on loopback and are never reachable from the network at all.
+  # ############################################################################
+  # !! DEBUG MODE - REVERT WITH debug_instance.tf !!
+  #
+  # Normally this rule admits the ALB security group only:
+  #
+  #   security_groups = [aws_security_group.alb_sg.id]
+  #
+  # While the standalone debug instance is in use there is no ALB, so the
+  # broker is reachable directly from the internet over plain HTTP. Do not
+  # leave this in place — it exposes an unencrypted login form.
+  # ############################################################################
   ingress {
-    description     = "Allow session broker (TCP 8080) from ALB"
-    from_port       = 8080
-    to_port         = 8080
-    protocol        = "tcp"
-    security_groups = [aws_security_group.alb_sg.id]
+    description = "DEBUG - session broker (TCP 8080) from anywhere"
+    from_port   = 8080
+    to_port     = 8080
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   # Allow ICMP for diagnostics.
