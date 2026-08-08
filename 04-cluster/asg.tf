@@ -15,9 +15,28 @@
 #
 # Notes:
 #   - Only scale-up policy defined here (no scale-down policy).
-#   - Grace period and warmup aligned at 300 seconds.
 #   - Instances distributed across private VM subnets.
 #
+# ################################################################################
+# !! THIS FILE IS CURRENTLY IN DEBUG MODE - REVERT BEFORE USE !!
+# ################################################################################
+#
+#   Set for single-instance troubleshooting of the session broker. The ASG
+#   will NOT scale and will NOT replace a node whose broker is dead.
+#
+#   Restore all four values below to return to normal operation:
+#
+#     desired_capacity          1    ->  2
+#     max_size                  1    ->  4
+#     min_size                  1    ->  2
+#     health_check_type         EC2  ->  ELB
+#     health_check_grace_period 3600 ->  300
+#     default_instance_warmup   3600 ->  300
+#
+#   health_check_type is the important one: on EC2 health, a node whose
+#   broker has crashed stays in service and keeps taking user traffic.
+#
+# ################################################################################
 # ================================================================================
 
 
@@ -88,10 +107,12 @@ resource "aws_autoscaling_group" "vscode_asg" {
   max_size         = 1
   min_size         = 1
 
-  health_check_type = "ELB"
+  # DEBUG MODE — EC2 health only, so a broker that never comes up cannot get
+  # the instance terminated out from under an SSM session. Normal value is
+  # "ELB", which is what actually removes nodes whose broker has died.
+  health_check_type = "EC2"
 
-  # DEBUG MODE — one hour of grace before the ELB health check can mark the
-  # instance unhealthy, leaving room to SSM in and work. Normal value is 300.
+  # DEBUG MODE — one hour of grace. Normal value is 300.
   health_check_grace_period = 3600
 
   default_cooldown        = 120
