@@ -46,7 +46,10 @@ mount /efs
 
 mkdir -p /efs/home
 mkdir -p /efs/data
-mkdir -p /efs/rlibs
+
+# Shared extension cache — lets every node reuse one download of a
+# VSIX instead of each user re-fetching it into their own home dir.
+mkdir -p /efs/extensions
 
 echo "${efs_mnt_server}:/home /home  efs   _netdev,tls  0 0" | sudo tee -a /etc/fstab
 systemctl daemon-reload
@@ -192,16 +195,16 @@ su -c "exit" edavis
 
 chgrp ${force_group} /efs
 chgrp ${force_group} /efs/data
-chgrp ${force_group} /efs/rlibs
+chgrp ${force_group} /efs/extensions
 
 chmod 2770 /efs
-chmod 2775 /efs/rlibs
+chmod 2775 /efs/extensions
 chmod 2770 /efs/data
 chmod 700 /home/*
 
 cd /efs
-git clone https://github.com/mamonaco1973/aws-rstudio-cluster.git
-chmod -R 775 aws-rstudio-cluster
-chgrp -R ${force_group} aws-rstudio-cluster
+git clone https://github.com/mamonaco1973/aws-vscode-cluster.git
+chmod -R 775 aws-vscode-cluster
+chgrp -R ${force_group} aws-vscode-cluster
 
 realm list

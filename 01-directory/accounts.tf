@@ -34,7 +34,7 @@ resource "random_password" "admin_password" {
 
 # Create AWS Secrets Manager container for Administrator credentials.
 resource "aws_secretsmanager_secret" "admin_secret" {
-  name        = "admin_ad_credentials_rstudio"
+  name        = "admin_ad_credentials_vscode"
   description = "Active Directory Administrator credentials"
 
   lifecycle {
@@ -71,7 +71,7 @@ resource "random_password" "jsmith_password" {
 
 # Create Secrets Manager container for user credentials.
 resource "aws_secretsmanager_secret" "jsmith_secret" {
-  name        = "jsmith_ad_credentials_rstudio"
+  name        = "jsmith_ad_credentials_vscode"
   description = "John Smith AD credentials"
 
   lifecycle {
@@ -103,7 +103,7 @@ resource "random_password" "edavis_password" {
 
 # Create Secrets Manager container for user credentials.
 resource "aws_secretsmanager_secret" "edavis_secret" {
-  name        = "edavis_ad_credentials_rstudio"
+  name        = "edavis_ad_credentials_vscode"
   description = "Emily Davis AD credentials"
 
   lifecycle {
@@ -135,7 +135,7 @@ resource "random_password" "rpatel_password" {
 
 # Create Secrets Manager container for user credentials.
 resource "aws_secretsmanager_secret" "rpatel_secret" {
-  name        = "rpatel_ad_credentials_rstudio"
+  name        = "rpatel_ad_credentials_vscode"
   description = "Raj Patel AD credentials"
 
   lifecycle {
@@ -167,7 +167,7 @@ resource "random_password" "akumar_password" {
 
 # Create Secrets Manager container for user credentials.
 resource "aws_secretsmanager_secret" "akumar_secret" {
-  name        = "akumar_ad_credentials_rstudio"
+  name        = "akumar_ad_credentials_vscode"
   description = "Amit Kumar AD credentials"
 
   lifecycle {

@@ -70,10 +70,10 @@ resource "aws_instance" "windows_ad_instance" {
   #   - Integration with Samba/EFS gateway
   #   - RDP group configuration
   user_data = templatefile("./scripts/userdata.ps1", {
-    admin_secret = "admin_ad_credentials_rstudio"
+    admin_secret = "admin_ad_credentials_vscode"
     domain_fqdn  = var.dns_zone
     samba_server = aws_instance.efs_gateway_instance.private_dns
-    rdp_group    = "rstudio-users"
+    rdp_group    = "vscode-users"
     netbios      = var.netbios
   })
 

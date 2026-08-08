@@ -1,0 +1,15 @@
+# Broker runtime dependencies.
+#
+# Ranges rather than exact pins: the AMI is rebuilt often enough that patch
+# drift is welcome, and broker.py resolves the one API that moved between
+# websockets majors at import time. Pin exactly before a production rollout.
+
+fastapi>=0.110,<1
+uvicorn>=0.29,<1
+httpx>=0.27,<1
+websockets>=12,<16
+python-pam>=2.0.2,<3
+itsdangerous>=2.1,<3
+
+# Required by FastAPI to parse the login form's multipart body.
+python-multipart>=0.0.9,<1

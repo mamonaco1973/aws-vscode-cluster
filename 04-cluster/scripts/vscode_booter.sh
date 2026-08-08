@@ -49,14 +49,10 @@ sudo sed -i 's/^access_provider = ad$/access_provider = simple\nsimple_allow_gro
   /etc/sssd/sssd.conf
 
 ln -s /efs /etc/skel/efs
-touch /etc/skel/.Xauthority
-chmod 600 /etc/skel/.Xauthority
 
 sudo pam-auth-update --enable mkhomedir
 sudo systemctl restart ssh
 sudo systemctl restart sssd
-sudo systemctl restart rstudio-server
-sudo systemctl enable rstudio-server
 
 # ---- Sudo privileges ----
 echo "%linux-admins ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/10-linux-admins
@@ -64,16 +60,25 @@ echo "%linux-admins ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/10-linux-a
 # ---- Home permissions ----
 sudo sed -i 's/^\(\s*HOME_MODE\s*\)[0-9]\+/\10700/' /etc/login.defs
 
-# ---- R library path ----
-cat <<'EOF' | sudo tee /usr/lib/R/etc/Rprofile.site > /dev/null
-local({
-  userlib <- Sys.getenv("R_LIBS_USER")
-  if (!dir.exists(userlib)) {
-    dir.create(userlib, recursive = TRUE, showWarnings = FALSE)
-  }
-  efs <- "/efs/rlibs"
-  .libPaths(c(userlib, efs, .libPaths()))
-})
+# ---- Session broker ----
+# Per-user editor state (SQLite) stays on local disk; SQLite over NFS is a
+# known corruption risk. Only user files live on EFS-backed /home.
+mkdir -p /var/lib/vscode
+chmod 0751 /var/lib/vscode
+
+# Shared VSIX staging area, seeded in 02-servers.
+mkdir -p /efs/extensions
+
+cat <<EOF | sudo tee /etc/vscode-broker.env > /dev/null
+BROKER_PORT=8080
+REQUIRED_GROUP=${force_group}
+SESSION_IDLE_MINUTES=120
+PORT_RANGE_START=9000
+PORT_RANGE_END=9500
+VSCODE_STATE_ROOT=/var/lib/vscode
 EOF
 
-chgrp rstudio-admins /efs/rlibs
+# Started only now that SSSD can resolve AD users — enabling it in the AMI
+# would let the ALB mark the node healthy before logins could succeed.
+sudo systemctl enable vscode-broker
+sudo systemctl restart vscode-broker

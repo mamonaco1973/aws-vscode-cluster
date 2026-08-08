@@ -3,7 +3,7 @@
 # ================================================================================
 #
 # Purpose:
-#   Define EC2 launch configuration for RStudio instances used by the Auto
+#   Define EC2 launch configuration for VS Code instances used by the Auto
 #   Scaling Group (ASG). Includes storage, networking, IAM, AMI selection,
 #   and bootstrapping user data.
 #
@@ -17,12 +17,12 @@
 
 
 # ================================================================================
-# SECTION: Launch Template - RStudio Instances
+# SECTION: Launch Template - VS Code Instances
 # ================================================================================
 
-resource "aws_launch_template" "rstudio_launch_template" {
-  name        = "rstudio-launch-template"
-  description = "Launch template for rstudio autoscaling"
+resource "aws_launch_template" "vscode_launch_template" {
+  name        = "vscode-launch-template"
+  description = "Launch template for vscode autoscaling"
 
 
   # --------------------------------------------------------------------------
@@ -48,7 +48,7 @@ resource "aws_launch_template" "rstudio_launch_template" {
     associate_public_ip_address = false
     delete_on_termination       = true
     security_groups = [
-      aws_security_group.rstudio_sg.id
+      aws_security_group.vscode_sg.id
     ]
   }
 
@@ -66,19 +66,19 @@ resource "aws_launch_template" "rstudio_launch_template" {
   # Instance Settings
   # --------------------------------------------------------------------------
   instance_type = "m5.large"
-  image_id      = data.aws_ami.latest_rstudio_ami.id
+  image_id      = data.aws_ami.latest_vscode_ami.id
 
 
   # --------------------------------------------------------------------------
   # User Data Bootstrapping
   # --------------------------------------------------------------------------
-  user_data = base64encode(templatefile("./scripts/rstudio_booter.sh", {
-    admin_secret   = "admin_ad_credentials_rstudio"
+  user_data = base64encode(templatefile("./scripts/vscode_booter.sh", {
+    admin_secret   = "admin_ad_credentials_vscode"
     domain_fqdn    = var.dns_zone
     efs_mnt_server = data.aws_efs_file_system.efs.dns_name
     netbios        = var.netbios
     realm          = var.realm
-    force_group    = "rstudio-users"
+    force_group    = "vscode-users"
   }))
 
 
@@ -86,13 +86,13 @@ resource "aws_launch_template" "rstudio_launch_template" {
   # Tags
   # --------------------------------------------------------------------------
   tags = {
-    Name = "rstudio-launch-template"
+    Name = "vscode-launch-template"
   }
 
   tag_specifications {
     resource_type = "instance"
     tags = {
-      Name = "rstudio-instance"
+      Name = "vscode-instance"
     }
   }
 }

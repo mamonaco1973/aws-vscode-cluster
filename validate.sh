@@ -1,19 +1,19 @@
 #!/bin/bash
 # ==============================================================================
-# validate.sh - Active Directory + RStudio Cluster Validation
+# validate.sh - Active Directory + VS Code Cluster Validation
 # ==============================================================================
 # Purpose:
 #   Validates the deployed AWS lab environment by retrieving:
 #     - Windows AD Administration host (public DNS for RDP access)
 #     - Linux EFS/Samba gateway host (public DNS / public IP)
-#     - RStudio Application Load Balancer endpoint
+#     - VS Code Application Load Balancer endpoint
 #
 # Notes:
 #   - Requires AWS CLI configured with appropriate permissions.
 #   - Instances must be tagged correctly:
 #       Name = windows-ad-admin
 #       Name = efs-samba-gateway
-#   - ALB must exist with name "rstudio-alb"
+#   - ALB must exist with name "vscode-alb"
 # ==============================================================================
 
 set -euo pipefail
@@ -25,7 +25,7 @@ export AWS_DEFAULT_REGION="us-east-1"
 
 echo ""
 echo "============================================================================"
-echo "RStudio AD Lab - Validation Output"
+echo "VS Code AD Lab - Validation Output"
 echo "============================================================================"
 echo ""
 
@@ -51,10 +51,10 @@ linux_ip="$(aws ec2 describe-instances \
   --output text | xargs)"
 
 # ------------------------------------------------------------------------------
-# Lookup RStudio ALB
+# Lookup VS Code ALB
 # ------------------------------------------------------------------------------
 alb_dns="$(aws elbv2 describe-load-balancers \
-  --names rstudio-alb \
+  --names vscode-alb \
   --query 'LoadBalancers[0].DNSName' \
   --output text | xargs)"
 
@@ -94,10 +94,29 @@ fi
 
 # ALB
 if [ -z "${alb_dns}" ] || [ "${alb_dns}" = "None" ]; then
-  print_line "RStudio ALB Endpoint" \
-    "WARNING: rstudio-alb not found"
+  print_line "VS Code ALB Endpoint" \
+    "WARNING: vscode-alb not found"
 else
-  print_line "RStudio ALB Endpoint" "http://${alb_dns}"
+  print_line "VS Code ALB Endpoint" "http://${alb_dns}"
+
+  # ----------------------------------------------------------------------------
+  # Broker Reachability Check
+  # ----------------------------------------------------------------------------
+  # A healthy node answers /healthz without a cookie and redirects / to the
+  # login form. Targets can take a few minutes to pass health checks after
+  # apply, so a failure here is not necessarily fatal.
+  health="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+    "http://${alb_dns}/healthz" || true)"
+
+  if [ "${health}" = "200" ]; then
+    print_line "Session Broker" "healthy (/healthz returned 200)"
+  else
+    print_line "Session Broker" \
+      "WARNING: /healthz returned '${health}' - targets may still be booting"
+  fi
 fi
 
+echo ""
+echo "NOTE: Sign in at the ALB endpoint with an AD account (e.g. jsmith)."
+echo "NOTE: Passwords are stored in Secrets Manager as <user>_ad_credentials_vscode."
 echo ""

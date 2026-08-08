@@ -1,6 +1,6 @@
 # ============================================================================================
 # Script Name : getNextGID.ps1
-# Description : Retrieves the next available GID number from the RStudio cluster service.
+# Description : Retrieves the next available GID number from the VS Code cluster service.
 # ============================================================================================
 
 # --------------------------------------------------------------------------------------------
@@ -14,7 +14,7 @@
 #       "next_uidNumber": 10005
 #   }
 # --------------------------------------------------------------------------------------------
-$uri = "http://rstudio.mikecloud.com/nextids"
+$uri = "http://vscode.mikecloud.com/nextids"
 
 try {
     # ----------------------------------------------------------------------------------------

@@ -1,42 +1,39 @@
-# AWS RStudio Cluster with EFS-Backed Shared Libraries
+# AWS VS Code Cluster with Domain-Joined Session Broker
 
-This project extends the original **AWS Mini Active Directory** lab by deploying an **RStudio Server cluster** on Amazon Web Services (AWS). The cluster is designed for data science and analytics workloads, where multiple users need a scalable, domain-joined environment with consistent package management.
+This project extends the original **AWS Mini Active Directory** lab by deploying a **browser-based VS Code cluster** on Amazon Web Services (AWS). It reproduces the core behavior of **Posit Workbench** — log into a web application, then get a private VS Code server session running under your own identity — without the commercial product.
 
-![RStudio](rstudio.png)
+The piece that makes this work is a small **session broker** written for this project. Unlike RStudio Server, `code-server` is a *single-user* process whose only authentication mode is a shared password. Pointing a load balancer straight at it would give every user the same identity and the same home directory. The broker supplies the missing multi-user layer:
 
-Instead of relying only on per-user libraries stored on ephemeral instance disks, this solution integrates **Amazon Elastic File System (EFS)** as a shared package and data backend. This allows RStudio nodes in an Auto Scaling Group (ASG) to mount a common EFS location, ensuring that installed R packages and project files are accessible across all nodes.
+1. Authenticate the user against Active Directory through PAM/SSSD.
+2. Launch a private `code-server` process **as that Linux user** via `systemd-run`, bound to loopback.
+3. Reverse-proxy the browser to it, including the WebSocket traffic the editor runs on.
 
 Key capabilities demonstrated:
 
-1. **RStudio Server Cluster with Load Balancer** – RStudio Server (Open Source Edition) deployed across multiple EC2 instances, fronted by an Application Load Balancer (ALB) for high availability and seamless user access.  
-2. **EFS-Backed Shared Library** – EFS mounted at `/efs/rlibs` and injected into `.libPaths()`, enabling shared R package storage across the cluster.  
-3. **Mini Active Directory Integration** – A Samba-based mini-AD domain controller provides authentication and DNS, so RStudio logins are domain-based and centrally managed.  
+1. **VS Code Cluster with Load Balancer** – `code-server` sessions across multiple EC2 instances, fronted by an Application Load Balancer (ALB).
+2. **EFS-Backed Home Directories** – EFS mounted at `/home`, so a user's files follow them regardless of which node serves their session.
+3. **Mini Active Directory Integration** – A Samba-based mini-AD domain controller provides authentication and DNS, so VS Code logins are domain-based and centrally managed.
 
-Together, this architecture provides a reproducible, cloud-native RStudio environment where users get both personal home-directory libraries and access to a shared, scalable package repository.
-
-
-![AWS RStudio Cluster](aws-rstudio-cluster.png)
+> **Note:** The architecture diagram has not yet been regenerated for this project. The `.drawio` source from the RStudio version was removed rather than left stale.
 
 ## Prerequisites
 
 * [An AWS Account](https://aws.amazon.com/console/)
-* [Install AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) 
+* [Install AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)
 * [Install Latest Terraform](https://developer.hashicorp.com/terraform/install)
 * [Install Latest Packer](https://developer.hashicorp.com/packer/install)
 
 If this is your first time watching our content, we recommend starting with this video: [AWS + Terraform: Easy Setup](https://youtu.be/BCMQo0CB9wk). It provides a step-by-step guide to properly configure Terraform, Packer, and the AWS CLI.
 
-
 ## Build WorkFlow
 
 ![Build WorkFlow](build-workflow.png)
 
-
 ## Download this Repository
 
 ```bash
-git clone https://github.com/mamonaco1973/aws-rstudio-cluster.git
-cd aws-rstudio-cluster
+git clone https://github.com/mamonaco1973/aws-vscode-cluster.git
+cd aws-vscode-cluster
 ```
 
 ## Build the Code
@@ -44,167 +41,205 @@ cd aws-rstudio-cluster
 Run [check_env](check_env.sh) to validate your environment, then run [apply](apply.sh) to provision the infrastructure.
 
 ```bash
-develop-vm:~/aws-rstudio-cluster$ ./apply.sh
-NOTE: Validating that required commands are found in your PATH.
-NOTE: aws is found in the current PATH.
-NOTE: terraform is found in the current PATH.
+develop-vm:~/aws-vscode-cluster$ ./apply.sh
+NOTE: Validating required commands in PATH.
+NOTE: Found required command: aws
+NOTE: Found required command: terraform
+NOTE: Found required command: jq
+NOTE: Found required command: packer
 NOTE: All required commands are available.
-NOTE: Checking AWS cli connection.
-NOTE: Successfully logged into AWS.
-Initializing the backend...
-Initializing provider plugins...
-- Reusing previous version of hashicorp/random from the dependency lock file
-- Reusing previous version of hashicorp/aws from the dependency lock file
-- Using previously-installed hashicorp/random v3.7.1
-- Using previously-installed hashicorp/aws v5.89.0
-
-Terraform has been successfully initialized!
-
-You may now begin working with Terraform. Try running "terraform plan" to see
-any changes that are required for your infrastructure. All Terraform commands
-should now work.
+NOTE: Verifying AWS CLI connectivity...
+NOTE: AWS CLI authentication successful.
+NOTE: Building Active Directory instance...
 ```
+
+The deployment runs in four phases:
+
+| Phase | Directory | What it builds |
+|-------|--------------|----------------|
+| 1 | `01-directory` | Samba 4 mini-AD domain controller, VPC, NAT |
+| 2 | `02-servers` | EFS, Windows AD admin host, Linux/Samba gateway |
+| 3 | `03-packer` | Custom AMI: `code-server` + session broker |
+| 4 | `04-cluster` | ALB, Auto Scaling Group, launch template |
+
 ### Build Results
 
 When the deployment completes, the following resources are created:
 
-- **Networking:**  
-  - A VPC with public and private subnets  
-  - Internet Gateway and NAT Gateway for controlled outbound access  
-  - Route tables configured to direct traffic through NAT for private subnets  
-  - DNS resolution provided by the Mini-AD domain controller  
+- **Networking:**
+  - A VPC with public and private subnets
+  - Internet Gateway and NAT Gateway for controlled outbound access
+  - Route tables configured to direct traffic through NAT for private subnets
+  - DNS resolution provided by the Mini-AD domain controller
 
-- **Security & IAM:**  
-  - Security groups for the domain controller, RStudio cluster nodes, ALB, and EFS mount targets  
-  - IAM roles and instance profiles enabling EC2 nodes to use AWS Systems Manager and mount EFS  
-  - Secrets stored in AWS Secrets Manager for AD administrator and RStudio test user credentials  
+- **Security & IAM:**
+  - Security groups for the domain controller, cluster nodes, ALB, and EFS mount targets
+  - IAM roles and instance profiles enabling EC2 nodes to use AWS Systems Manager and mount EFS
+  - Secrets stored in AWS Secrets Manager for AD administrator and test user credentials
 
-- **Active Directory Server:**  
-  - Ubuntu EC2 instance running Samba 4 as a Domain Controller and DNS server  
-  - Configured Kerberos realm and NetBIOS name for centralized authentication  
-  - Integrated with the RStudio cluster for domain-based logins  
+- **Active Directory Server:**
+  - Ubuntu EC2 instance running Samba 4 as a Domain Controller and DNS server
+  - Configured Kerberos realm and NetBIOS name for centralized authentication
+  - Integrated with the VS Code cluster for domain-based logins
 
-- **Amazon EFS:**  
-  - Elastic File System provisioned with mount targets in each private subnet  
-  - Security group allowing NFS traffic (TCP/2049) from RStudio nodes  
-  - Mounted at `/efs/rlibs` and injected into `.libPaths()` for shared R package storage  
+- **Amazon EFS:**
+  - Elastic File System provisioned with mount targets in each private subnet
+  - Security group allowing NFS traffic (TCP/2049) from cluster nodes
+  - Mounted at `/home` so user files are available from any node
+  - `/efs/extensions` provided as a shared staging area for VSIX packages
 
-- **Custom RStudio AMI:**  
-  - Built with Packer to include R, RStudio Server (Open Source Edition), and bootstrap scripts  
-  - Configured to integrate with domain authentication  
-  - Ready for deployment across the autoscaling cluster  
+- **Custom VS Code AMI:**
+  - Built with Packer to include `code-server`, the session broker, and bootstrap scripts
+  - PAM stack at `/etc/pam.d/vscode` wired to SSSD for domain authentication
+  - Ready for deployment across the autoscaling cluster
 
-- **RStudio Autoscaling Cluster:**  
-  - Auto Scaling Group of EC2 instances using the custom AMI  
-  - Application Load Balancer (ALB) distributing traffic to RStudio nodes  
-  - Domain-joined at launch, with consistent access to EFS-backed shared libraries  
-  - Provides high availability and elasticity for R workloads  
+- **VS Code Autoscaling Cluster:**
+  - Auto Scaling Group of EC2 instances using the custom AMI
+  - Application Load Balancer distributing traffic to the broker on port 8080
+  - Domain-joined at launch, with EFS-backed home directories
 
-- **Validation:**  
-  - Automated checks via `./validate.sh` confirm DNS resolution, AD integration, and cluster health  
-  - Ensures that users can log in through the ALB and access both personal and shared R libraries  
+- **Validation:**
+  - Automated checks via `./validate.sh` report the ALB endpoint and confirm the broker answers `/healthz`
+
+## How the Session Broker Works
+
+The broker lives at [03-packer/broker/broker.py](03-packer/broker/broker.py) and runs as `vscode-broker.service` on every cluster node.
+
+| Route | Behavior |
+|-------|----------|
+| `GET /healthz` | Unauthenticated health check for the ALB target group |
+| `GET /login` | Renders the sign-in form |
+| `POST /login` | PAM authentication via SSSD, then sets a signed session cookie |
+| `GET /logout` | Stops the user's `code-server` process and clears the cookie |
+| everything else | Reverse-proxied to the user's own `code-server` on `127.0.0.1` |
+
+Each session runs as a transient systemd unit named `vscode-<username>`, started with `--uid` so the process holds the user's real POSIX identity. You can inspect them directly on any node:
+
+```bash
+systemctl list-units 'vscode-*'
+journalctl -u vscode-jsmith
+```
+
+Sessions idle for longer than `SESSION_IDLE_MINUTES` (default 120) are reaped. Configuration lives in `/etc/vscode-broker.env`, written at boot by the launch template.
+
+### Design Trade-offs
+
+These are deliberate choices, not oversights:
+
+- **One session per user, pinned to one node.** The ALB uses cookie stickiness because a user's `code-server` process exists on exactly one instance. If that instance is replaced, the session is gone and the user signs in again. This matches RStudio Server Community — load-balancing sessions across nodes is a paid Workbench feature.
+- **Scale-up only.** The ASG has no scale-down policy. Scaling in would terminate nodes holding live sessions, so the cluster grows under load but does not shrink automatically.
+- **Editor state is node-local.** `code-server` keeps its state in SQLite, and SQLite over NFS is a well-known corruption risk. State lives at `/var/lib/vscode/<user>` on instance storage while user *files* live on EFS-backed `/home`. Losing a node costs editor layout and installed extensions, never work.
+- **`--auth none` on each `code-server`.** Safe only because every instance binds to loopback and the security group admits port 8080 from the ALB alone. The broker is the only path in. Do not widen the bind address.
+- **HTTP, not HTTPS.** The ALB listener is plain HTTP, matching the original lab. Session cookies therefore travel in the clear — add an ACM certificate and an HTTPS listener before using this anywhere real.
 
 ### Users and Groups
 
 As part of this project, when the domain controller is provisioned, a set of sample **users** and **groups** are automatically created through Terraform-provisioned scripts running on the mini-ad server. These resources are intended for **testing and demonstration purposes**, showcasing how to automate user and group provisioning in a self-managed Active Directory environment.
 
-
 #### Groups Created
 
 | Group Name    | Group Category | Group Scope | gidNumber |
 |---------------|----------------|-------------|-----------|
-| rstudio-users  | Security       | Universal   | 10001     |
+| vscode-users  | Security       | Universal   | 10001     |
 | india         | Security       | Universal   | 10002     |
 | us            | Security       | Universal   | 10003     |
 | linux-admins  | Security       | Universal   | 10004     |
-| rstudio-admins  | Security       | Universal   | 10005     |
+| vscode-admins | Security       | Universal   | 10005     |
 
 #### Users Created and Group Memberships
 
 | Username | Full Name   | uidNumber | gidNumber | Groups Joined                    |
 |----------|-------------|-----------|-----------|-----------------------------------|
-| jsmith   | John Smith  | 10001     | 10001     | rstudio-users, us, linux-admins,rstudio-admins    |
-| edavis   | Emily Davis | 10002     | 10001     | rstudio-users, us                  |
-| rpatel   | Raj Patel   | 10003     | 10001     | rstudio-users, india, linux-admins, rstudio-admins |
-| akumar   | Amit Kumar  | 10004     | 10001     | rstudio-users, india               |
+| jsmith   | John Smith  | 10001     | 10001     | vscode-users, us, linux-admins, vscode-admins    |
+| edavis   | Emily Davis | 10002     | 10001     | vscode-users, us                  |
+| rpatel   | Raj Patel   | 10003     | 10001     | vscode-users, india, linux-admins, vscode-admins |
+| akumar   | Amit Kumar  | 10004     | 10001     | vscode-users, india               |
 
+Membership in **vscode-users** is what grants a session. The broker enforces it explicitly via `REQUIRED_GROUP`, in addition to the SSSD `access_provider = simple` restriction applied at domain join.
 
 #### Understanding `uidNumber` and `gidNumber` for Linux Integration
 
 The **`uidNumber`** (User ID) and **`gidNumber`** (Group ID) attributes are critical when integrating **Active Directory** with **Linux systems**, particularly in environments where **SSSD** ([System Security Services Daemon](https://sssd.io/)) or similar services are used for identity management. These attributes allow Linux hosts to recognize and map Active Directory users and groups into the **POSIX** (Portable Operating System Interface) user and group model.
 
-### Creating a New RStudio User
+### Creating a New VS Code User
 
-Follow these steps to provision a new user in the Active Directory domain and validate their access to the RStudio cluster:
+Follow these steps to provision a new user in the Active Directory domain and validate their access to the cluster:
 
-1. **Connect to the Domain Controller**  
-   - Log into the **`windows-ad-admin`** server via Remote Desktop (RDP).  
-   - Use the `rpatel` or `jsmith` credentials that were provisioned during cluster deployment.  
+1. **Connect to the Domain Controller**
+   - Log into the **`windows-ad-admin`** server via Remote Desktop (RDP).
+   - Use the `rpatel` or `jsmith` credentials that were provisioned during cluster deployment.
 
-2. **Launch Active Directory Users and Computers (ADUC)**  
-   - From the Windows Start menu, open **“Active Directory Users and Computers.”**  
-   - Enable **Advanced Features** under the **View** menu. This ensures you can access the extended attribute tabs (e.g., UID/GID mappings).  
+2. **Launch Active Directory Users and Computers (ADUC)**
+   - From the Windows Start menu, open **“Active Directory Users and Computers.”**
+   - Enable **Advanced Features** under the **View** menu. This ensures you can access the extended attribute tabs (e.g., UID/GID mappings).
 
-3. **Navigate to the Users Organizational Unit (OU)**  
-   - In the left-hand tree, expand the domain (e.g., `rstudio.mikecloud.com`).  
-   - Select the **Users** OU where all cluster accounts are managed.  
+3. **Navigate to the Users Organizational Unit (OU)**
+   - In the left-hand tree, expand the domain (e.g., `vscode.mikecloud.com`).
+   - Select the **Users** OU where all cluster accounts are managed.
 
-4. **Create a New User Object**  
-   - Right-click the Users OU and choose **New → User.**  
-   - Provide the following:  
-     - **Full Name:** Descriptive user name (e.g., “Mike Cloud”).  
-     - **User Logon Name (User Principal Name / UPN):** e.g., `mcloud@rstudio.mikecloud.com`.  
+4. **Create a New User Object**
+   - Right-click the Users OU and choose **New → User.**
+   - Provide the following:
+     - **Full Name:** Descriptive user name (e.g., “Mike Cloud”).
+     - **User Logon Name (User Principal Name / UPN):** e.g., `mcloud@vscode.mikecloud.com`.
      - **Initial Password:** Set an initial password.
 
 ![Windows](windows.png)
 
-5. **Assign a Unique UID Number**  
-   - Open **PowerShell** on the AD server.  
-   - Run the script located at:  
+5. **Assign a Unique UID Number**
+   - Open **PowerShell** on the AD server.
+   - Run the script located at:
      ```powershell
-     Z:\efs\aws-rstudio-cluster\06-utils\getNextUID.bat
-     ```  
-   - This script returns the next available **`uidNumber`** to assign to the new account.  
+     Z:\efs\aws-vscode-cluster\06-utils\getNextUID.bat
+     ```
+   - This script returns the next available **`uidNumber`** to assign to the new account.
 
-6. **Configure Advanced Attributes**  
-   - In the new user’s **Properties** dialog, open the **Attribute Editor** tab.  
-   - Set the following values:  
-     - `gidNumber` → **10001** (the shared GID for the `rstudio-users` group).  
-     - `uid` → match the user’s AD login ID (e.g., `rpatel`).  
-     - `uidNumber` → the unique numeric value returned from `getNextUID.ps1`.  
+6. **Configure Advanced Attributes**
+   - In the new user's **Properties** dialog, open the **Attribute Editor** tab.
+   - Set the following values:
+     - `gidNumber` → **10001** (the shared GID for the `vscode-users` group).
+     - `uid` → match the user's AD login ID (e.g., `mcloud`).
+     - `uidNumber` → the unique numeric value returned from `getNextUID.ps1`.
 
-7. **Add Group Memberships**  
-   - Go to the **Member Of** tab.  
-   - Add the user to the following groups:  
-     - **rstudio-users** → grants standard RStudio access.  
-     - **us** (or other geographic/departmental group as applicable).  
+7. **Add Group Memberships**
+   - Go to the **Member Of** tab.
+   - Add the user to the following groups:
+     - **vscode-users** → grants standard VS Code session access.
+     - **us** (or other geographic/departmental group as applicable).
 
-8. **Validate User on Linux**  
-   - Open an **AWS Systems Manager (SSM)** session to the **`efs-samba-gateway`** instance.  
-   - Run the following command to confirm the user’s identity mapping:  
+8. **Validate User on Linux**
+   - Open an **AWS Systems Manager (SSM)** session to the **`efs-samba-gateway`** instance.
+   - Run the following command to confirm the user's identity mapping:
      ```bash
      id mcloud
-     ```  
-   - Verify that the output shows the correct **UID**, **GID**, and group memberships (e.g., `rstudio-users`).  
+     ```
+   - Verify that the output shows the correct **UID**, **GID**, and group memberships (e.g., `vscode-users`).
 
 ![Linux](linux.png)
 
-9. **Validate RStudio Access**  
-   - Open the RStudio cluster’s Application Load Balancer (ALB) URL in a browser (e.g., `https://rstudio-alb-xxxxxx.us-east-1.elb.amazonaws.com`).  
-   - Log in with the new AD credentials.  
+9. **Validate VS Code Access**
+   - Open the cluster's Application Load Balancer (ALB) URL in a browser (e.g., `http://vscode-alb-xxxxxx.us-east-1.elb.amazonaws.com`).
+   - Log in with the new AD credentials. The broker starts a private session on first request, which takes a few seconds.
 
-10. **Verify Permissions**  
-   - By default, the new user is **not** a member of the `rstudio-admin` group.  
-   - Attempting to install packages into the **shared library path `/efs/rlibs`** should fail with a **“Permission denied”** error.  
-   - This confirms the user is restricted to installing packages in their **personal user library** only.  
+10. **Verify Isolation**
+    - Open a terminal inside VS Code and run `id` — it reports the signed-in AD user, not a shared service account.
+    - `ls ~` shows that user's own EFS-backed home directory.
+    - Users outside **vscode-users** are rejected at sign-in even with valid AD credentials.
 
 ---
 
-✅ **Note:** If you need the user to have administrative rights (e.g., the ability to install packages into the shared library), add them to the **rstudio-admin** group in addition to `rstudio-users`.
- 
-### Clean Up Infrastructure  
+✅ **Note:** Membership in **vscode-admins** is provided for future use (for example, granting write access to shared paths under `/efs`). Session access itself is governed by **vscode-users**.
 
-When you are finished testing, you can remove all provisioned resources with:  
+### Troubleshooting
+
+- **Targets never turn healthy** — check the broker on a node: `systemctl status vscode-broker` and `journalctl -u vscode-broker`. Nodes serve `/healthz` only after the domain join completes.
+- **Login fails for a valid AD user** — confirm SSSD resolves them (`id <user>`) and that they are in `vscode-users`.
+- **Session starts but the editor never loads** — almost always WebSocket related. Confirm the ALB listener forwards to port 8080 and check the broker log for proxy errors.
+- **Bootstrap problems** — the launch template's user-data log is at `/root/userdata.log` on each node.
+
+### Clean Up Infrastructure
+
+When you are finished testing, you can remove all provisioned resources with:
 
 ```bash
 ./destroy.sh

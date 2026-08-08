@@ -4,13 +4,13 @@
 #
 # Purpose:
 #   Configure AWS provider and retrieve existing infrastructure components
-#   required for RStudio deployment.
+#   required for VS Code deployment.
 #
 # Scope:
 #   - AWS provider configuration
 #   - Secrets Manager lookup (AD admin credentials)
 #   - Subnet and VPC discovery
-#   - Latest custom RStudio AMI lookup
+#   - Latest custom VS Code AMI lookup
 #   - IAM instance profile lookup
 #   - EFS file system lookup
 #
@@ -35,7 +35,7 @@ provider "aws" {
 # ================================================================================
 
 data "aws_secretsmanager_secret" "admin_secret" {
-  name = "admin_ad_credentials_rstudio"
+  name = "admin_ad_credentials_vscode"
 }
 
 
@@ -112,15 +112,15 @@ data "aws_subnet" "ad_subnet" {
 
 
 # ================================================================================
-# SECTION: AMI Lookup - Latest RStudio Image
+# SECTION: AMI Lookup - Latest VS Code Image
 # ================================================================================
 
-data "aws_ami" "latest_rstudio_ami" {
+data "aws_ami" "latest_vscode_ami" {
   most_recent = true
 
   filter {
     name   = "name"
-    values = ["rstudio_ami*"]
+    values = ["vscode_ami*"]
   }
 
   filter {
@@ -147,6 +147,6 @@ data "aws_iam_instance_profile" "ec2_secrets_profile" {
 
 data "aws_efs_file_system" "efs" {
   tags = {
-    Name = "rstudio-efs"
+    Name = "vscode-efs"
   }
 }

@@ -5,3 +5,5 @@
 *.terraform.*
 *.pem
 *.pub
+__pycache__/
+*.pyc

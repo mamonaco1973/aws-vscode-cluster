@@ -3,11 +3,11 @@
 # ================================================================================
 #
 # Purpose:
-#   Define security groups for RStudio application instances and the
+#   Define security groups for VS Code application instances and the
 #   Application Load Balancer (ALB).
 #
 # Scope:
-#   - RStudio Server security group (TCP 8787 + ICMP)
+#   - Session broker security group (TCP 8080 from ALB + ICMP)
 #   - ALB security group (TCP 80 + ICMP)
 #   - Default outbound access enabled
 #
@@ -20,21 +20,22 @@
 
 
 # ================================================================================
-# SECTION: RStudio Server Security Group
+# SECTION: code-server Security Group
 # ================================================================================
 
-resource "aws_security_group" "rstudio_sg" {
-  name        = "rstudio-security-group"
-  description = "Allow RStudio Server (port 8787) access"
+resource "aws_security_group" "vscode_sg" {
+  name        = "vscode-security-group"
+  description = "Allow session broker (port 8080) access from the ALB"
   vpc_id      = data.aws_vpc.ad_vpc.id
 
-  # Allow RStudio web access.
+  # Only the ALB may reach the broker. Per-user code-server instances listen
+  # on loopback and are never reachable from the network at all.
   ingress {
-    description = "Allow RStudio Server (TCP 8787)"
-    from_port   = 8787
-    to_port     = 8787
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    description     = "Allow session broker (TCP 8080) from ALB"
+    from_port       = 8080
+    to_port         = 8080
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb_sg.id]
   }
 
   # Allow ICMP for diagnostics.
@@ -61,7 +62,7 @@ resource "aws_security_group" "rstudio_sg" {
 # ================================================================================
 
 resource "aws_security_group" "alb_sg" {
-  name        = "rstudio-alb-security-group"
+  name        = "vscode-alb-security-group"
   description = "Allow ALB (port 80) access"
   vpc_id      = data.aws_vpc.ad_vpc.id
 

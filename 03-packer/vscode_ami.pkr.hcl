@@ -1,16 +1,16 @@
 # ================================================================================
-# FILE: rstudio.pkr.hcl
+# FILE: vscode_ami.pkr.hcl
 # ================================================================================
 #
 # Purpose:
-#   Build a reusable Amazon Machine Image (AMI) for RStudio Server on
-#   Ubuntu 24.04 (Noble) using Packer.
+#   Build a reusable Amazon Machine Image (AMI) carrying code-server and the
+#   session broker on Ubuntu 24.04 (Noble) using Packer.
 #
 # Design:
 #   - Base image dynamically resolved from Canonical-owned AMI.
 #   - Temporary EC2 instance used for provisioning.
 #   - Timestamped AMI name ensures uniqueness per build.
-#   - Resulting AMI intended for Terraform or direct EC2 launches.
+#   - Resulting AMI is consumed by the 04-cluster launch template.
 #
 # ================================================================================
 
@@ -75,20 +75,27 @@ variable "subnet_id" {
   default     = ""
 }
 
+# Optional code-server release pin. Empty resolves to the latest upstream
+# release, which is convenient during development but not reproducible.
+variable "code_server_version" {
+  description = "code-server version to install (empty = latest)"
+  default     = ""
+}
+
 
 # ================================================================================
 # SECTION: Amazon EBS Builder
 # ================================================================================
 
 # Launch temporary EC2 instance, provision software, and create AMI.
-source "amazon-ebs" "rstudio_ami" {
+source "amazon-ebs" "vscode_ami" {
   region        = var.region
   instance_type = var.instance_type
   source_ami    = data.amazon-ami.ubuntu_2404.id
   ssh_username  = "ubuntu"
   ssh_interface = "public_ip"
 
-  ami_name = "rstudio_ami_${replace(timestamp(), ":", "-")}"
+  ami_name = "vscode_ami_${replace(timestamp(), ":", "-")}"
 
   vpc_id    = var.vpc_id
   subnet_id = var.subnet_id
@@ -102,7 +109,7 @@ source "amazon-ebs" "rstudio_ami" {
   }
 
   tags = {
-    Name = "rstudio_ami_${replace(timestamp(), ":", "-")}"
+    Name = "vscode_ami_${replace(timestamp(), ":", "-")}"
   }
 }
 
@@ -113,7 +120,7 @@ source "amazon-ebs" "rstudio_ami" {
 
 # Execute provisioning scripts within temporary build instance.
 build {
-  sources = ["source.amazon-ebs.rstudio_ami"]
+  sources = ["source.amazon-ebs.vscode_ami"]
 
   # Install SSM agent.
   provisioner "shell" {
@@ -133,9 +140,22 @@ build {
     execute_command = "sudo -E bash '{{.Path}}'"
   }
 
-  # Install and configure RStudio Server.
+  # Install and configure code-server.
   provisioner "shell" {
-    script          = "./rstudio.sh"
+    script           = "./vscode.sh"
+    execute_command  = "sudo -E bash '{{.Path}}'"
+    environment_vars = ["CODE_SERVER_VERSION=${var.code_server_version}"]
+  }
+
+  # Stage broker sources where broker.sh expects to find them.
+  provisioner "file" {
+    source      = "./broker"
+    destination = "/tmp"
+  }
+
+  # Install the session broker and its systemd unit.
+  provisioner "shell" {
+    script          = "./broker.sh"
     execute_command = "sudo -E bash '{{.Path}}'"
   }
 }

@@ -5,10 +5,10 @@
 #
 # Purpose:
 #   Orchestrate controlled teardown of Active Directory and dependent
-#   RStudio infrastructure.
+#   VS Code infrastructure.
 #
 # Teardown Order:
-#     1. Destroy RStudio autoscaling cluster.
+#     1. Destroy VS Code autoscaling cluster.
 #     2. Deregister project AMIs and delete associated snapshots.
 #     3. Destroy dependent EC2 servers.
 #     4. Delete AD-related Secrets Manager entries.
@@ -40,10 +40,10 @@ export AWS_DEFAULT_REGION="us-east-1"
 
 
 # ================================================================================
-# PHASE 1: Destroy RStudio Autoscaling Cluster
+# PHASE 1: Destroy VS Code Autoscaling Cluster
 # ================================================================================
 
-echo "NOTE: Destroying RStudio Cluster..."
+echo "NOTE: Destroying VS Code Cluster..."
 
 cd 04-cluster || {
   echo "ERROR: Directory 04-cluster not found"
@@ -63,7 +63,7 @@ echo "NOTE: Deregistering project AMIs and deleting snapshots..."
 
 for ami_id in $(aws ec2 describe-images \
   --owners self \
-  --filters "Name=name,Values=rstudio_ami*" \
+  --filters "Name=name,Values=vscode_ami*" \
   --query "Images[].ImageId" \
   --output text); do
 
@@ -104,11 +104,11 @@ cd ..
 echo "NOTE: Deleting AD-related Secrets Manager entries..."
 
 for secret in \
-  akumar_ad_credentials_rstudio \
-  jsmith_ad_credentials_rstudio \
-  edavis_ad_credentials_rstudio \
-  rpatel_ad_credentials_rstudio \
-  admin_ad_credentials_rstudio; do
+  akumar_ad_credentials_vscode \
+  jsmith_ad_credentials_vscode \
+  edavis_ad_credentials_vscode \
+  rpatel_ad_credentials_vscode \
+  admin_ad_credentials_vscode; do
 
   aws secretsmanager delete-secret \
     --secret-id "$secret" \

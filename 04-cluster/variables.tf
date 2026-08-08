@@ -25,7 +25,7 @@
 variable "dns_zone" {
   description = "Active Directory DNS zone (FQDN)"
   type        = string
-  default     = "rstudio.mikecloud.com"
+  default     = "vscode.mikecloud.com"
 }
 
 
@@ -36,7 +36,7 @@ variable "dns_zone" {
 variable "realm" {
   description = "Kerberos realm (uppercase DNS zone)"
   type        = string
-  default     = "RSTUDIO.MIKECLOUD.COM"
+  default     = "VSCODE.MIKECLOUD.COM"
 }
 
 
@@ -47,7 +47,7 @@ variable "realm" {
 variable "netbios" {
   description = "NetBIOS short domain name"
   type        = string
-  default     = "RSTUDIO"
+  default     = "VSCODE"
 }
 
 
@@ -58,5 +58,5 @@ variable "netbios" {
 variable "vpc_name" {
   description = "Name for the VPC resource"
   type        = string
-  default     = "rstudio-vpc"
+  default     = "vscode-vpc"
 }

@@ -3,7 +3,7 @@
 # ================================================================================
 #
 # Purpose:
-#   Provide horizontal scaling for RStudio infrastructure using:
+#   Provide horizontal scaling for VS Code infrastructure using:
 #     - CloudWatch CPU alarm
 #     - Auto Scaling policy
 #     - Auto Scaling Group (ASG)
@@ -39,7 +39,7 @@ resource "aws_cloudwatch_metric_alarm" "cpu_high" {
   actions_enabled     = true
 
   dimensions = {
-    AutoScalingGroupName = aws_autoscaling_group.rstudio_asg.name
+    AutoScalingGroupName = aws_autoscaling_group.vscode_asg.name
   }
 
   alarm_actions = [
@@ -58,7 +58,7 @@ resource "aws_autoscaling_policy" "scale_up_policy" {
   scaling_adjustment     = 1
   adjustment_type        = "ChangeInCapacity"
   cooldown               = 120
-  autoscaling_group_name = aws_autoscaling_group.rstudio_asg.name
+  autoscaling_group_name = aws_autoscaling_group.vscode_asg.name
 }
 
 
@@ -66,15 +66,15 @@ resource "aws_autoscaling_policy" "scale_up_policy" {
 # SECTION: Auto Scaling Group (ASG)
 # ================================================================================
 
-# Manage lifecycle of RStudio EC2 instances.
-resource "aws_autoscaling_group" "rstudio_asg" {
+# Manage lifecycle of VS Code EC2 instances.
+resource "aws_autoscaling_group" "vscode_asg" {
 
   launch_template {
-    id      = aws_launch_template.rstudio_launch_template.id
+    id      = aws_launch_template.vscode_launch_template.id
     version = "$Latest"
   }
 
-  name = "rstudio-asg"
+  name = "vscode-asg"
 
   vpc_zone_identifier = [
     data.aws_subnet.vm_subnet_1.id,
@@ -90,10 +90,10 @@ resource "aws_autoscaling_group" "rstudio_asg" {
   default_instance_warmup   = 300
 
   target_group_arns = [
-    aws_lb_target_group.rstudio_alb_tg.arn
+    aws_lb_target_group.vscode_alb_tg.arn
   ]
 
   depends_on = [
-    aws_lb.rstudio_alb
+    aws_lb.vscode_alb
   ]
 }
