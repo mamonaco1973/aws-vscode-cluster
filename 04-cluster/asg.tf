@@ -81,13 +81,21 @@ resource "aws_autoscaling_group" "vscode_asg" {
     data.aws_subnet.vm_subnet_2.id
   ]
 
-  desired_capacity          = 2
-  max_size                  = 4
-  min_size                  = 2
-  health_check_type         = "ELB"
-  health_check_grace_period = 300
-  default_cooldown          = 120
-  default_instance_warmup   = 300
+  # DEBUG MODE — pinned to a single instance so a failing bootstrap cannot
+  # spin up replacements while the box is being examined. Restore to
+  # desired 2 / max 4 / min 2 once the broker is confirmed working.
+  desired_capacity = 1
+  max_size         = 1
+  min_size         = 1
+
+  health_check_type = "ELB"
+
+  # DEBUG MODE — one hour of grace before the ELB health check can mark the
+  # instance unhealthy, leaving room to SSM in and work. Normal value is 300.
+  health_check_grace_period = 3600
+
+  default_cooldown        = 120
+  default_instance_warmup = 3600
 
   target_group_arns = [
     aws_lb_target_group.vscode_alb_tg.arn
