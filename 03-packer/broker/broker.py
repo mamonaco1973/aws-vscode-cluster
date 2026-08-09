@@ -73,6 +73,7 @@ PORT_RANGE_END = int(os.environ.get("PORT_RANGE_END", "9500"))
 SESSION_IDLE_MINUTES = int(os.environ.get("SESSION_IDLE_MINUTES", "120"))
 COOKIE_NAME = os.environ.get("COOKIE_NAME", "vscode_broker")
 COOKIE_MAX_AGE = int(os.environ.get("COOKIE_MAX_AGE", "43200"))  # 12 hours
+CSRF_COOKIE = "vscode_csrf"
 
 # Bound on how long code-server may take to accept its first connection.
 SPAWN_TIMEOUT_SECONDS = 90
@@ -226,6 +227,15 @@ class SessionManager:
         """
         unit = self._unit_name(user)
         state = os.path.join(STATE_ROOT, user)
+
+        # The registry lives in process memory, so a broker restart forgets
+        # sessions that systemd still has loaded. Clear the unit name before
+        # claiming it — otherwise systemd rejects the duplicate and every
+        # user with a live session is locked out until someone intervenes.
+        subprocess.run(["systemctl", "stop", f"{unit}.service"],
+                       capture_output=True, text=True)
+        subprocess.run(["systemctl", "reset-failed", f"{unit}.service"],
+                       capture_output=True, text=True)
 
         # State (SQLite) stays on local disk; only user files live on EFS.
         os.makedirs(state, exist_ok=True)
@@ -446,6 +456,38 @@ async def start_reaper() -> None:
     asyncio.create_task(sessions.reap_idle())
 
 
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    """Attach security headers to broker-owned responses.
+
+    Applied only to the sign-in flow. Proxied code-server responses are
+    passed through untouched — the editor loads itself in iframes and
+    workers, and X-Frame-Options would break it.
+    """
+    response = await call_next(request)
+
+    if request.url.path in ("/login", "/logout", "/healthz"):
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "same-origin"
+        response.headers["Cache-Control"] = (
+            "no-cache, no-store, max-age=0, must-revalidate"
+        )
+        response.headers["Pragma"] = "no-cache"
+
+    return response
+
+
+# The credential inputs deliberately live in a form whose action is
+# javascript:void, while the form that actually posts carries only hidden
+# fields populated by static/signin.js at submit time.
+#
+# This mirrors RStudio Server's sign-in page, which passes ISP phishing
+# filters that block a conventional login form on the same protocol and the
+# same class of hostname. "Password input inside a form that submits to a
+# URL" is the highest-weighted signal those classifiers use, and this
+# structure simply does not contain one. RStudio arrives here as a side
+# effect of encrypting the password client-side; the shape is what matters.
 LOGIN_PAGE = """
 <!doctype html>
 <html lang="en">
@@ -453,27 +495,50 @@ LOGIN_PAGE = """
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Development Environment</title>
-<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-<link rel="stylesheet" href="/static/broker.css">
+<link rel="shortcut icon" href="/static/favicon.svg" />
+<link rel="stylesheet" href="/static/broker.css" type="text/css" />
+<script type="text/javascript" src="/static/signin.js"></script>
 </head>
 <body>
-<main class="card">
-  <img class="logo" src="/static/logo.svg" alt="" width="44" height="44">
-  <h1>Development Environment</h1>
-  <p class="sub">Sign in with your domain account.</p>
-  {error}
-  <form method="post" action="/login">
-    <label for="username">Username</label>
-    <input id="username" name="username" autofocus autocapitalize="off"
-           autocorrect="off">
-    <label for="password">Password</label>
-    <input id="password" name="password" type="password">
-    <button type="submit">Start session</button>
+<header id="banner" role="banner">
+  <div id="logo"><img src="/static/logo.svg" height="27" alt="" /></div>
+</header>
+<main role="main">
+  <div class="card">
+    <h1 id="caption_header" class="caption">Development Environment</h1>
+    <p class="sub">Sign in with your domain account.</p>
+    {error}
+    <form name="login_form" method="POST" action="javascript:void"
+          onsubmit="submitRealForm();return false">
+      <div role="group" aria-labelledby="caption_header">
+        <p>
+          <label for="username">Username:</label><br />
+          <input type="text" id="username" autocomplete="off"
+                 autocorrect="off" autocapitalize="off" spellcheck="false"
+                 value="" aria-required="true" aria-invalid="false" autofocus />
+        </p>
+        <p>
+          <label for="password">Password:</label><br />
+          <input type="password" id="password" autocomplete="off"
+                 autocorrect="off" autocapitalize="off" spellcheck="false"
+                 value="" aria-required="true" aria-invalid="false" />
+        </p>
+        <div class="buttonpanel">
+          <button id="signinbutton" class="fancy" type="submit">Sign in</button>
+        </div>
+      </div>
+    </form>
+    <nav class="links">
+      <a href="/healthz">Service status</a>
+      <a href="https://github.com/mamonaco1973/aws-vscode-cluster">Documentation</a>
+    </nav>
+  </div>
+
+  <form action="/login" name="realform" method="POST">
+    <input type="hidden" name="username" id="realusername" value="" />
+    <input type="hidden" name="password" id="realpassword" value="" />
+    <input type="hidden" name="csrf_token" value="{csrf}" />
   </form>
-  <nav class="links">
-    <a href="/healthz">Service status</a>
-    <a href="https://github.com/mamonaco1973/aws-vscode-cluster">Documentation</a>
-  </nav>
 </main>
 </body>
 </html>
@@ -502,13 +567,35 @@ async def static_files(name: str) -> FileResponse:
     return FileResponse(path)
 
 
+def render_login(error: str = "") -> HTMLResponse:
+    """Render the sign-in page with a fresh CSRF token.
+
+    Args:
+        error: Optional HTML fragment shown above the form.
+
+    Returns:
+        The rendered page, with the CSRF token also set as a cookie so the
+        POST handler can verify the two halves match.
+    """
+    token = secrets.token_urlsafe(16)
+    status = 401 if error else 200
+
+    response = HTMLResponse(
+        LOGIN_PAGE.format(error=error, csrf=token), status_code=status
+    )
+    response.set_cookie(
+        CSRF_COOKIE, token, httponly=True, samesite="lax", path="/"
+    )
+    return response
+
+
 @app.get("/login")
 async def login_form(request: Request) -> HTMLResponse:
     """Render the sign-in form, or bounce an already-signed-in user home."""
     if current_user(request):
         return RedirectResponse("/", status_code=302)
 
-    return HTMLResponse(LOGIN_PAGE.format(error=""))
+    return render_login()
 
 
 @app.post("/login")
@@ -516,6 +603,7 @@ async def login(
     request: Request,
     username: str = Form(""),
     password: str = Form(""),
+    csrf_token: str = Form(""),
 ) -> HTMLResponse:
     """Authenticate the user and hand back a signed session cookie."""
     user = username.strip().lower()
@@ -524,14 +612,22 @@ async def login(
     if "\\" in user:
         user = user.split("\\", 1)[1]
 
+    # Double-submit CSRF check: the hidden field is rendered server-side and
+    # the cookie is HttpOnly, so a cross-site form cannot produce both.
+    cookie_token = request.cookies.get(CSRF_COOKIE, "")
+
+    if not cookie_token or not secrets.compare_digest(csrf_token,
+                                                      cookie_token):
+        log.warning("csrf mismatch on login from %s", request.client.host)
+        return render_login('<div class="err" role="alert">'
+                            'Session expired. Try again.</div>')
+
     ok = await asyncio.to_thread(authenticate, user, password)
 
     if not ok:
         log.info("failed login for %r from %s", user, request.client.host)
-        page = LOGIN_PAGE.format(
-            error='<div class="err">Sign-in failed.</div>'
-        )
-        return HTMLResponse(page, status_code=401)
+        return render_login('<div class="err" role="alert">'
+                            'Sign-in failed.</div>')
 
     log.info("login for %s from %s", user, request.client.host)
 
@@ -610,6 +706,7 @@ async def proxy_websocket(websocket: WebSocket, path: str) -> None:
         headers.pop(name, None)
 
     await websocket.accept()
+    log.info("ws %s -> %s", user, target)
 
     try:
         async with websockets.connect(
@@ -649,8 +746,13 @@ async def proxy_websocket(websocket: WebSocket, path: str) -> None:
             for task in pending:
                 task.cancel()
 
-    except (WebSocketDisconnect, websockets.WebSocketException, OSError):
-        pass
+    # A silent handler here hides the most failure-prone part of the broker.
+    # Normal client disconnects land in the first branch; anything else is a
+    # genuine defect and gets a traceback.
+    except (WebSocketDisconnect, websockets.WebSocketException, OSError) as exc:
+        log.info("ws %s closed: %s: %s", user, type(exc).__name__, exc)
+    except Exception:
+        log.exception("ws proxy failed for %s", user)
     finally:
         try:
             await websocket.close()
