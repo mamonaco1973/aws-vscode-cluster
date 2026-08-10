@@ -70,14 +70,42 @@ resource "aws_lb_target_group" "vscode_alb_tg" {
 
 
 # ================================================================================
-# SECTION: HTTP Listener
+# SECTION: HTTP Listener - Redirect Only
 # ================================================================================
 
-# Listens on port 80 and forwards traffic to target group.
+# Port 80 exists solely to bounce users to HTTPS. Nothing is served over
+# plain HTTP: cleartext is what lets ISP filters classify the sign-in page as
+# phishing and lets carriers interfere with the WebSocket upgrade.
 resource "aws_lb_listener" "http_listener" {
   load_balancer_arn = aws_lb.vscode_alb.arn
   port              = 80
   protocol          = "HTTP"
+
+  default_action {
+    type = "redirect"
+
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
+  }
+}
+
+
+# ================================================================================
+# SECTION: HTTPS Listener
+# ================================================================================
+
+# Terminates TLS at the ALB using the imported self-signed certificate, then
+# forwards plain HTTP to the broker inside the VPC. The broker itself needs
+# no TLS configuration.
+resource "aws_lb_listener" "https_listener" {
+  load_balancer_arn = aws_lb.vscode_alb.arn
+  port              = 443
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+  certificate_arn   = aws_acm_certificate.alb.arn
 
   default_action {
     type             = "forward"
