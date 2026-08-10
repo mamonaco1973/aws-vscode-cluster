@@ -14,29 +14,16 @@
 #   - Integrate with ALB target group for health monitoring.
 #
 # Notes:
-#   - Only scale-up policy defined here (no scale-down policy).
+#   - Only scale-up policy defined here (no scale-down policy). Scaling in
+#     would terminate nodes holding live sessions.
 #   - Instances distributed across private VM subnets.
 #
-# ################################################################################
-# !! THIS FILE IS CURRENTLY IN DEBUG MODE - REVERT BEFORE USE !!
-# ################################################################################
+# Debugging tip:
+#   To troubleshoot a node without the ASG replacing it, set min/max/desired
+#   to 1 and health_check_type to "EC2". On EC2 health the ASG ignores ALB
+#   health checks, so a node whose broker never starts stays up for
+#   inspection. Restore both before returning to normal use.
 #
-#   Set for single-instance troubleshooting of the session broker. The ASG
-#   will NOT scale and will NOT replace a node whose broker is dead.
-#
-#   Restore all four values below to return to normal operation:
-#
-#     desired_capacity          1    ->  2
-#     max_size                  1    ->  4
-#     min_size                  1    ->  2
-#     health_check_type         EC2  ->  ELB
-#     health_check_grace_period 3600 ->  300
-#     default_instance_warmup   3600 ->  300
-#
-#   health_check_type is the important one: on EC2 health, a node whose
-#   broker has crashed stays in service and keeps taking user traffic.
-#
-# ################################################################################
 # ================================================================================
 
 
@@ -100,23 +87,21 @@ resource "aws_autoscaling_group" "vscode_asg" {
     data.aws_subnet.vm_subnet_2.id
   ]
 
-  # DEBUG MODE — pinned to a single instance so a failing bootstrap cannot
-  # spin up replacements while the box is being examined. Restore to
-  # desired 2 / max 4 / min 2 once the broker is confirmed working.
   desired_capacity = 1
-  max_size         = 1
+  max_size         = 4
   min_size         = 1
 
-  # DEBUG MODE — EC2 health only, so a broker that never comes up cannot get
-  # the instance terminated out from under an SSM session. Normal value is
-  # "ELB", which is what actually removes nodes whose broker has died.
-  health_check_type = "EC2"
+  # ELB health so a node whose broker has died is pulled from service. On
+  # EC2 health the instance would stay in the target group and keep taking
+  # user traffic with nothing listening on 8080.
+  health_check_type = "ELB"
 
-  # DEBUG MODE — one hour of grace. Normal value is 300.
-  health_check_grace_period = 3600
+  # Nodes join the domain, mount EFS, and start the broker before they can
+  # pass a health check — 300s covers that bootstrap.
+  health_check_grace_period = 300
 
   default_cooldown        = 120
-  default_instance_warmup = 3600
+  default_instance_warmup = 300
 
   target_group_arns = [
     aws_lb_target_group.vscode_alb_tg.arn

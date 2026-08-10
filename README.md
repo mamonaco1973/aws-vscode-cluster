@@ -250,8 +250,18 @@ Follow these steps to provision a new user in the Active Directory domain and va
 
 - **Targets never turn healthy** — check the broker on a node: `systemctl status vscode-broker` and `journalctl -u vscode-broker`. Nodes serve `/healthz` only after the domain join completes.
 - **Login fails for a valid AD user** — confirm SSSD resolves them (`id <user>`) and that they are in `vscode-users`.
-- **Session starts but the editor never loads** — almost always WebSocket related. Confirm the ALB listener forwards to port 8080 and check the broker log for proxy errors.
+- **Session starts, page loads, but the editor spins with "handshake timed out"** — check the broker log for `server rejected WebSocket connection: HTTP 403`. code-server refuses a WebSocket upgrade whose `Origin` does not match its own host, as a CSRF defence. The broker rewrites `Origin` to the loopback upstream to satisfy it; if that line is removed the editor will never connect while every HTTP request continues to succeed, because the check applies only to upgrades.
 - **Bootstrap problems** — the launch template's user-data log is at `/root/userdata.log` on each node.
+
+Expected console noise that is **not** a fault:
+
+| Message | Cause |
+|---------|-------|
+| `vsda_bg.wasm` / `vsda.js` 404 | Proprietary Microsoft module, absent from the MIT build |
+| `github-authentication`, `emmet`, `git-base`, `merge-conflict` 404 | Built-in extensions the OSS build does not bundle |
+| `Timed out waiting for authentication provider 'github'` | Follows from the above |
+| `open-vsx.org/... 404` | Extension not published to Open VSX — also confirms the gallery pin is working |
+| `Service Worker registration SecurityError` | Chrome will not register a Service Worker behind a self-signed certificate. Only a DNS-validated certificate removes this; the editor is fully functional without it |
 
 ### Clean Up Infrastructure
 

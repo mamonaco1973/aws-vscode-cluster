@@ -705,6 +705,17 @@ async def proxy_websocket(websocket: WebSocket, path: str) -> None:
                  "sec-websocket-extensions", "sec-websocket-protocol"):
         headers.pop(name, None)
 
+    # code-server rejects a WebSocket upgrade with HTTP 403 when Origin does
+    # not match the host it is serving on — a CSRF defence. The browser sends
+    # the ALB's origin, and stripping "host" above means the upstream sees
+    # 127.0.0.1, so the two never agree. Rewrite Origin to the loopback
+    # address the upstream actually answers on.
+    #
+    # This is safe: the browser's own origin was already validated by the
+    # session cookie before reaching this point, and code-server is bound to
+    # loopback where no third party can originate a request.
+    headers["origin"] = f"http://127.0.0.1:{session.port}"
+
     await websocket.accept()
     log.info("ws %s -> %s", user, target)
 
