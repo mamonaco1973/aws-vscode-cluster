@@ -44,9 +44,10 @@ from dataclasses import dataclass, field
 import httpx
 import pam
 import websockets
-from fastapi import FastAPI, Form, Request, WebSocket
-from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
-from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi import FastAPI, Form, Request, Response, WebSocket
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import PlainTextResponse, RedirectResponse
+from fastapi.responses import StreamingResponse
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from starlette.background import BackgroundTask
 from starlette.websockets import WebSocketDisconnect
@@ -138,6 +139,11 @@ class SessionManager:
     def __init__(self) -> None:
         self._sessions: dict[str, Session] = {}
         self._lock = asyncio.Lock()
+
+        # In-flight background starts, keyed by user. Lets the sign-in flow
+        # kick off a spawn and return immediately so the browser can show a
+        # progress page instead of hanging on a blank response.
+        self._starting: dict[str, asyncio.Task] = {}
 
     # --------------------------------------------------------------------------
     # Lookup helpers
@@ -328,6 +334,39 @@ class SessionManager:
 
         await self._wait_ready(user, session.port)
         return session
+
+    def is_ready(self, user: str) -> bool:
+        """Report whether the user's session is up and accepting connections."""
+        session = self._sessions.get(user)
+        return bool(session and self._port_in_use(session.port))
+
+    def begin(self, user: str) -> str:
+        """Start a session in the background and report progress.
+
+        Idempotent: repeated calls while a start is in flight do nothing.
+        Used by the progress page, which polls rather than blocking.
+
+        Returns:
+            "ready", "starting", or an error message from a failed attempt.
+        """
+        if self.is_ready(user):
+            return "ready"
+
+        task = self._starting.get(user)
+
+        if task and task.done():
+            # Surface the failure rather than silently respawning forever.
+            exc = task.exception()
+            self._starting.pop(user, None)
+
+            if exc:
+                log.error("background start failed for %s: %s", user, exc)
+                return f"error: {exc}"
+
+        if user not in self._starting:
+            self._starting[user] = asyncio.create_task(self.ensure(user))
+
+        return "starting"
 
     def touch(self, user: str) -> None:
         """Record activity so the idle reaper leaves this session alone."""
@@ -545,10 +584,62 @@ LOGIN_PAGE = """
 """
 
 
+# Shown between sign-in and the editor. A first launch has to initialise the
+# user's state directory before code-server starts listening, which takes
+# long enough that a blank page reads as a hang.
+STARTING_PAGE = """
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Starting your session</title>
+<link rel="shortcut icon" href="/static/favicon.svg" />
+<link rel="stylesheet" href="/static/broker.css" type="text/css" />
+<script type="text/javascript" src="/static/session.js"></script>
+</head>
+<body>
+<main role="main">
+  <div class="card">
+    <div class="spinner" role="progressbar" aria-labelledby="status"></div>
+    <h1 class="caption">Starting your session</h1>
+    <p class="sub" id="status" aria-live="polite">
+      Preparing your environment. This can take up to a minute the first
+      time you sign in.
+    </p>
+    <div id="failure" class="err" style="display:none"></div>
+  </div>
+</main>
+</body>
+</html>
+"""
+
+
 @app.get("/healthz")
 async def healthz() -> PlainTextResponse:
     """Answer ALB health checks without requiring a session."""
     return PlainTextResponse("ok")
+
+
+@app.get("/session-starting")
+async def session_starting(request: Request) -> HTMLResponse:
+    """Show progress while the user's code-server instance comes up."""
+    if not current_user(request):
+        return RedirectResponse("/login", status_code=302)
+
+    return HTMLResponse(STARTING_PAGE)
+
+
+@app.get("/session-status")
+async def session_status(request: Request) -> JSONResponse:
+    """Report session readiness to the progress page's poller."""
+    user = current_user(request)
+
+    if not user:
+        return JSONResponse({"state": "unauthenticated"}, status_code=401)
+
+    state = sessions.begin(user)
+    return JSONResponse({"state": state})
 
 
 @app.get("/static/{name}")
@@ -631,7 +722,9 @@ async def login(
 
     log.info("login for %s from %s", user, request.client.host)
 
-    response = RedirectResponse("/", status_code=302)
+    # Land on the progress page rather than the editor: the first spawn for a
+    # user takes long enough that going straight to "/" shows a blank tab.
+    response = RedirectResponse("/session-starting", status_code=302)
     response.set_cookie(
         COOKIE_NAME,
         signer.dumps(user),
@@ -771,6 +864,53 @@ async def proxy_websocket(websocket: WebSocket, path: str) -> None:
             pass
 
 
+# Injected into the workbench document only. code-server occupies the whole
+# viewport and has no concept of the broker's session, so without this there
+# is no way to sign out other than typing /logout by hand.
+#
+# Both assets are same-origin, which keeps them inside code-server's
+# script-src/style-src 'self' CSP. An inline <script> would be blocked.
+SIGNOUT_TAGS = (
+    b'<link rel="stylesheet" href="/static/signout.css">'
+    b'<script src="/static/signout.js" defer></script>'
+    b"</body>"
+)
+
+
+async def inject_signout(upstream: httpx.Response) -> Response:
+    """Add the sign-out control to a workbench document.
+
+    Args:
+        upstream: An open streaming response from code-server.
+
+    Returns:
+        The rewritten document. Falls back to the original bytes if the
+        closing body tag is missing, so an upstream change cannot break
+        the editor — it only loses the button.
+    """
+    body = await upstream.aread()
+    await upstream.aclose()
+
+    if b"</body>" in body:
+        body = body.replace(b"</body>", SIGNOUT_TAGS, 1)
+    else:
+        log.warning("no </body> in workbench document; sign-out not injected")
+
+    headers = filtered_headers(dict(upstream.headers))
+
+    # Length changed, and the body is no longer whatever encoding was
+    # negotiated upstream. Starlette recalculates both.
+    headers.pop("content-length", None)
+    headers.pop("content-encoding", None)
+
+    return Response(
+        content=body,
+        status_code=upstream.status_code,
+        headers=headers,
+        media_type=upstream.headers.get("content-type"),
+    )
+
+
 @app.api_route(
     "/{path:path}",
     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
@@ -781,6 +921,17 @@ async def proxy_http(request: Request, path: str) -> StreamingResponse:
 
     if not user:
         return RedirectResponse("/login", status_code=302)
+
+    # A page navigation with no live session goes to the progress page rather
+    # than blocking here for the length of a spawn. Sub-resource requests
+    # (scripts, fonts, XHR) fall through and wait, since redirecting those to
+    # HTML would corrupt whatever the browser is loading.
+    if not sessions.is_ready(user):
+        wants_html = "text/html" in request.headers.get("accept", "")
+
+        if wants_html and request.method == "GET":
+            sessions.begin(user)
+            return RedirectResponse("/session-starting", status_code=302)
 
     try:
         session = await sessions.ensure(user)
@@ -800,6 +951,13 @@ async def proxy_http(request: Request, path: str) -> StreamingResponse:
     headers = filtered_headers(dict(request.headers))
     headers["host"] = f"127.0.0.1:{session.port}"
 
+    # The workbench document gets a sign-out control injected into it, which
+    # means reading the body — so ask the upstream not to compress it.
+    inject = path == "" and request.method == "GET"
+
+    if inject:
+        headers.pop("accept-encoding", None)
+
     # Only methods that carry a body get a streamed one. Handing httpx a
     # stream makes it chunk the request, which would contradict the
     # client's own content-length header — so that header goes too.
@@ -817,6 +975,9 @@ async def proxy_http(request: Request, path: str) -> StreamingResponse:
     )
 
     upstream = await client.send(upstream_request, stream=True)
+
+    if inject and "text/html" in upstream.headers.get("content-type", ""):
+        return await inject_signout(upstream)
 
     return StreamingResponse(
         upstream.aiter_raw(),

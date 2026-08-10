@@ -110,8 +110,16 @@ The broker lives at [03-packer/broker/broker.py](03-packer/broker/broker.py) and
 | `GET /healthz` | Unauthenticated health check for the ALB target group |
 | `GET /login` | Renders the sign-in form |
 | `POST /login` | PAM authentication via SSSD, then sets a signed session cookie |
+| `GET /session-starting` | Progress page shown while a session spawns |
+| `GET /session-status` | JSON readiness poll used by that page |
 | `GET /logout` | Stops the user's `code-server` process and clears the cookie |
 | everything else | Reverse-proxied to the user's own `code-server` on `127.0.0.1` |
+
+**Signing out.** `code-server` occupies the entire viewport and knows nothing about the broker's session, so the broker injects a small sign-out button into the workbench document — bottom-right, faded until hovered. It opens a confirmation dialog styled to match the sign-in page, since signing out stops the user's `code-server` process and discards unsaved editor state; files saved to the home directory are unaffected.
+
+The injection is deliberately narrow: it applies only to the root document (`path == ""`), never to iframes, workers, or sub-resources. The injected `<link>` and `<script>` are same-origin so they satisfy code-server's `'self'` CSP — an inline script would be blocked. If a future code-server release drops `</body>` from that document, the injection is skipped and logged, and the editor still works; only the button disappears.
+
+A first sign-in takes noticeably longer than later ones, because `code-server` has to initialise the user's state directory before it starts listening. Rather than block the request — which shows a blank tab for up to a minute — sign-in lands on `/session-starting`, which spawns the session in the background and polls until the port answers. Page navigations that arrive with no live session are redirected there too; sub-resource requests are not, since redirecting a script or font to HTML would corrupt the load.
 
 Each session runs as a transient systemd unit named `vscode-<username>`, started with `--uid` so the process holds the user's real POSIX identity. You can inspect them directly on any node:
 

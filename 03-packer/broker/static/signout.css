@@ -1,0 +1,111 @@
+/* Sign-out control injected into the workbench document.
+ *
+ * Sits above the status bar in the bottom-right corner and stays faded
+ * until hovered — the editor owns the whole viewport, so anything opaque
+ * is permanently in the user's way. */
+
+#broker-signout {
+  position: fixed;
+  right: 12px;
+  bottom: 34px; /* Clears code-server's status bar. */
+  z-index: 2147483647;
+
+  padding: 4px 10px;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 11px;
+  line-height: 1.4;
+
+  color: #fff;
+  background: #0e639c;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+
+  opacity: 0.35;
+  transition: opacity 120ms ease-in-out;
+}
+
+#broker-signout:hover,
+#broker-signout:focus-visible {
+  opacity: 1;
+}
+
+/* Keyboard users need to see focus even before hovering. */
+#broker-signout:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 1px;
+}
+
+
+/* ---------------------------------------------------------------------------
+ * Confirmation dialog
+ *
+ * Styled to match the sign-in page rather than the editor theme — this is
+ * the broker speaking, not VS Code, and the distinction is worth keeping.
+ * ------------------------------------------------------------------------ */
+
+#broker-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  background: rgba(0, 0, 0, 0.55);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+#broker-modal {
+  width: 340px;
+  max-width: calc(100vw - 32px);
+  padding: 1.5rem;
+
+  color: #ccc;
+  background: #252526;
+  border: 1px solid #3c3c3c;
+  border-radius: 6px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+#broker-modal h2 {
+  margin: 0 0 .5rem;
+  font-size: 1.05rem;
+  font-weight: 500;
+  color: #eee;
+}
+
+#broker-modal p {
+  margin: 0 0 1.25rem;
+  font-size: .85rem;
+  line-height: 1.5;
+  color: #999;
+}
+
+.broker-modal-actions {
+  display: flex;
+  gap: .5rem;
+  justify-content: flex-end;
+}
+
+.broker-modal-actions button {
+  padding: .45rem .9rem;
+  font-size: .85rem;
+  font-family: inherit;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.broker-btn-primary { background: #0e639c; color: #fff; }
+.broker-btn-primary:hover { background: #1177bb; }
+.broker-btn-primary:disabled { opacity: .6; cursor: default; }
+
+.broker-btn-secondary { background: #3c3c3c; color: #ccc; }
+.broker-btn-secondary:hover { background: #4a4a4a; }
+
+.broker-modal-actions button:focus-visible {
+  outline: 2px solid #3794ff;
+  outline-offset: 1px;
+}

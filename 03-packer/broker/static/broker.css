@@ -19,6 +19,16 @@ button { width: 100%; padding: .55rem; background: #0e639c; color: #fff;
 button:hover { background: #1177bb; }
 .err { background: #5a1d1d; border: 1px solid #be1100; border-radius: 3px;
        color: #f48771; font-size: .85rem; padding: .5rem; margin-bottom: 1rem; }
+.spinner { width: 36px; height: 36px; margin: 0 auto 1.25rem;
+           border: 3px solid #3c3c3c; border-top-color: #0e639c;
+           border-radius: 50%; animation: spin 900ms linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Respect users who have asked for reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation-duration: 3s; }
+}
+
 .links { margin-top: 1.5rem; text-align: center; font-size: .78rem; }
 .links a { color: #3794ff; text-decoration: none; margin: 0 .5rem; }
 .links a:hover { text-decoration: underline; }
