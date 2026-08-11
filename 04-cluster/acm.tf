@@ -112,3 +112,13 @@ output "vscode_url" {
   description = "HTTPS endpoint for the VS Code cluster"
   value       = "https://${aws_lb.vscode_alb.dns_name}"
 }
+
+# Emitted so the certificate can be added to a workstation's trust store
+# without digging it out of the browser. Trusting it is required for VS Code
+# webviews — Chrome refuses to register a service worker behind an untrusted
+# certificate, and webviews are built on one. Public half only; the private
+# key stays in state.
+output "vscode_certificate_pem" {
+  description = "Self-signed certificate to trust on client machines"
+  value       = tls_self_signed_cert.alb.cert_pem
+}

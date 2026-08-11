@@ -1,4 +1,4 @@
-# AWS VS Code Cluster with Domain-Joined Session Broker
+# AWS VS Code Cluster
 
 This project extends the original **AWS Mini Active Directory** lab by deploying a **browser-based VS Code cluster** on Amazon Web Services (AWS). It reproduces the core behavior of **Posit Workbench** — log into a web application, then get a private VS Code server session running under your own identity — without the commercial product.
 
@@ -24,10 +24,6 @@ Key capabilities demonstrated:
 * [Install Latest Packer](https://developer.hashicorp.com/packer/install)
 
 If this is your first time watching our content, we recommend starting with this video: [AWS + Terraform: Easy Setup](https://youtu.be/BCMQo0CB9wk). It provides a step-by-step guide to properly configure Terraform, Packer, and the AWS CLI.
-
-## Build WorkFlow
-
-![Build WorkFlow](build-workflow.png)
 
 ## Download this Repository
 
@@ -156,6 +152,34 @@ Microsoft's own `code serve-web` / VS Code Server is under a proprietary license
 
 For extensions absent from Open VSX, obtain the `.vsix` from the publisher directly and stage it under `/efs/extensions`, where it is available to every node.
 
+### Trust the Certificate
+
+**This step is required, not optional.** The ALB presents a self-signed certificate, and Chrome refuses to register a Service Worker over an untrusted connection — clicking through the interstitial grants you the page, not a valid secure context. VS Code builds every webview on a Service Worker, so without trusting the certificate you lose markdown preview, extension detail pages, notebook rendering, and most extension UI. The symptom is:
+
+```
+Error loading webview: Could not register service worker:
+SecurityError: ... An SSL certificate error occurred when fetching the script.
+```
+
+The core editor, terminal, and file operations work regardless, which is why the problem is easy to miss at first.
+
+Export the certificate from Terraform:
+
+```bash
+cd 04-cluster
+terraform output -raw vscode_certificate_pem > vscode-alb.crt
+```
+
+Then add it to your workstation's trust store:
+
+- **Windows** — `certmgr.msc` → Trusted Root Certification Authorities → Certificates → right-click → All Tasks → Import, and select `vscode-alb.crt`. Restart Chrome.
+- **macOS** — `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain vscode-alb.crt`
+- **Linux (Chrome)** — `certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n vscode-alb -i vscode-alb.crt`
+
+The certificate's common name is the ALB's own DNS name, so once trusted there is no hostname mismatch and the browser stops warning entirely.
+
+Each `apply` creates a new load balancer with a new DNS name and therefore a new certificate, so this is repeated per deployment. To avoid it altogether, replace `04-cluster/acm.tf` with a DNS-validated ACM certificate for a domain you control and point a Route 53 alias at the ALB — at the cost of requiring a registered domain to run the lab.
+
 ### Users and Groups
 
 As part of this project, when the domain controller is provisioned, a set of sample **users** and **groups** are automatically created through Terraform-provisioned scripts running on the mini-ad server. These resources are intended for **testing and demonstration purposes**, showcasing how to automate user and group provisioning in a self-managed Active Directory environment.
@@ -179,80 +203,9 @@ As part of this project, when the domain controller is provisioned, a set of sam
 | rpatel   | Raj Patel   | 10003     | 10001     | vscode-users, india, linux-admins, vscode-admins |
 | akumar   | Amit Kumar  | 10004     | 10001     | vscode-users, india               |
 
-Membership in **vscode-users** is what grants a session. The broker enforces it explicitly via `REQUIRED_GROUP`, in addition to the SSSD `access_provider = simple` restriction applied at domain join.
+Membership in **vscode-users** is what grants a session; the broker enforces it via `REQUIRED_GROUP`, on top of the SSSD `access_provider = simple` restriction applied at domain join. **vscode-admins** is reserved for future use, such as write access to shared paths under `/efs`.
 
-#### Understanding `uidNumber` and `gidNumber` for Linux Integration
-
-The **`uidNumber`** (User ID) and **`gidNumber`** (Group ID) attributes are critical when integrating **Active Directory** with **Linux systems**, particularly in environments where **SSSD** ([System Security Services Daemon](https://sssd.io/)) or similar services are used for identity management. These attributes allow Linux hosts to recognize and map Active Directory users and groups into the **POSIX** (Portable Operating System Interface) user and group model.
-
-### Creating a New VS Code User
-
-Follow these steps to provision a new user in the Active Directory domain and validate their access to the cluster:
-
-1. **Connect to the Domain Controller**
-   - Log into the **`windows-ad-admin`** server via Remote Desktop (RDP).
-   - Use the `rpatel` or `jsmith` credentials that were provisioned during cluster deployment.
-
-2. **Launch Active Directory Users and Computers (ADUC)**
-   - From the Windows Start menu, open **“Active Directory Users and Computers.”**
-   - Enable **Advanced Features** under the **View** menu. This ensures you can access the extended attribute tabs (e.g., UID/GID mappings).
-
-3. **Navigate to the Users Organizational Unit (OU)**
-   - In the left-hand tree, expand the domain (e.g., `vscode.mikecloud.com`).
-   - Select the **Users** OU where all cluster accounts are managed.
-
-4. **Create a New User Object**
-   - Right-click the Users OU and choose **New → User.**
-   - Provide the following:
-     - **Full Name:** Descriptive user name (e.g., “Mike Cloud”).
-     - **User Logon Name (User Principal Name / UPN):** e.g., `mcloud@vscode.mikecloud.com`.
-     - **Initial Password:** Set an initial password.
-
-![Windows](windows.png)
-
-5. **Assign a Unique UID Number**
-   - Open **PowerShell** on the AD server.
-   - Run the script located at:
-     ```powershell
-     Z:\efs\aws-vscode-cluster\06-utils\getNextUID.bat
-     ```
-   - This script returns the next available **`uidNumber`** to assign to the new account.
-
-6. **Configure Advanced Attributes**
-   - In the new user's **Properties** dialog, open the **Attribute Editor** tab.
-   - Set the following values:
-     - `gidNumber` → **10001** (the shared GID for the `vscode-users` group).
-     - `uid` → match the user's AD login ID (e.g., `mcloud`).
-     - `uidNumber` → the unique numeric value returned from `getNextUID.ps1`.
-
-7. **Add Group Memberships**
-   - Go to the **Member Of** tab.
-   - Add the user to the following groups:
-     - **vscode-users** → grants standard VS Code session access.
-     - **us** (or other geographic/departmental group as applicable).
-
-8. **Validate User on Linux**
-   - Open an **AWS Systems Manager (SSM)** session to the **`efs-samba-gateway`** instance.
-   - Run the following command to confirm the user's identity mapping:
-     ```bash
-     id mcloud
-     ```
-   - Verify that the output shows the correct **UID**, **GID**, and group memberships (e.g., `vscode-users`).
-
-![Linux](linux.png)
-
-9. **Validate VS Code Access**
-   - Open the cluster's Application Load Balancer (ALB) URL in a browser (e.g., `https://vscode-alb-xxxxxx.us-east-1.elb.amazonaws.com`). Accept the self-signed certificate warning once.
-   - Log in with the new AD credentials. The broker starts a private session on first request, which takes a few seconds.
-
-10. **Verify Isolation**
-    - Open a terminal inside VS Code and run `id` — it reports the signed-in AD user, not a shared service account.
-    - `ls ~` shows that user's own EFS-backed home directory.
-    - Users outside **vscode-users** are rejected at sign-in even with valid AD credentials.
-
----
-
-✅ **Note:** Membership in **vscode-admins** is provided for future use (for example, granting write access to shared paths under `/efs`). Session access itself is governed by **vscode-users**.
+To confirm a user resolves, open an SSM session to `efs-samba-gateway` and run `id <username>`. New users follow the usual ADUC plus `uidNumber`/`gidNumber` process; `06-utils/getNextUID.bat` returns the next free UID.
 
 ### Troubleshooting
 
@@ -269,7 +222,7 @@ Expected console noise that is **not** a fault:
 | `github-authentication`, `emmet`, `git-base`, `merge-conflict` 404 | Built-in extensions the OSS build does not bundle |
 | `Timed out waiting for authentication provider 'github'` | Follows from the above |
 | `open-vsx.org/... 404` | Extension not published to Open VSX — also confirms the gallery pin is working |
-| `Service Worker registration SecurityError` | Chrome will not register a Service Worker behind a self-signed certificate. Only a DNS-validated certificate removes this; the editor is fully functional without it |
+| `Service Worker registration SecurityError` | The certificate is not trusted on this machine — see [Trust the Certificate](#trust-the-certificate). Breaks webviews; not cosmetic |
 
 ### Clean Up Infrastructure
 
