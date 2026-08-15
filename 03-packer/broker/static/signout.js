@@ -99,19 +99,26 @@
 
   // Title bar regions, best host first. code-server has renamed these
   // across releases, so fall through rather than depend on one selector.
-  // "end" appends after the menu icon in the left group; "start" is for
-  // the fallback hosts, where first-child is the nearest equivalent spot.
+  // Every placement puts the button immediately RIGHT of the control that
+  // is already there: "end" appends after the icon in the left group,
+  // "after-first" does the same on the fallback hosts, where the left
+  // group is not its own element and first-child would land left of it.
   var HOSTS = [
     { sel: ".monaco-workbench .part.titlebar .titlebar-left", place: "end" },
     { sel: ".monaco-workbench .part.titlebar .titlebar-container",
-      place: "start" },
-    { sel: ".monaco-workbench .part.titlebar", place: "start" }
+      place: "after-first" },
+    { sel: ".monaco-workbench .part.titlebar", place: "after-first" }
   ];
 
   var MOUNT_TIMEOUT_MS = 20000;
 
   var button = null;
   var deadline = 0;
+
+  // True between pointerdown and pointerup on the button. Relocating the
+  // node in that window makes the browser drop the click entirely, which
+  // shows up as a button that only works some of the time.
+  var interacting = false;
 
   function findHost() {
     for (var i = 0; i < HOSTS.length; i++) {
@@ -138,6 +145,20 @@
       "<span>Sign out</span>";
 
     el.addEventListener("click", openModal);
+
+    el.addEventListener("pointerdown", function () {
+      interacting = true;
+    });
+
+    // Clear on the document, not the button: a pointerup that lands outside
+    // the button would otherwise leave the guard stuck on forever.
+    document.addEventListener("pointerup", function () {
+      interacting = false;
+    });
+    document.addEventListener("pointercancel", function () {
+      interacting = false;
+    });
+
     return el;
   }
 
@@ -149,13 +170,17 @@
     var host = findHost();
 
     if (host) {
-      if (button.parentNode !== host.el) {
+      // Never relocate mid-click; the guard costs at most one 5s tick.
+      if (button.parentNode !== host.el && !interacting) {
         button.classList.remove("broker-floating");
 
         if (host.place === "end") {
           host.el.appendChild(button);
+        } else if (host.el.firstElementChild) {
+          // After the first existing control, not before it.
+          host.el.insertBefore(button, host.el.firstElementChild.nextSibling);
         } else {
-          host.el.insertBefore(button, host.el.firstChild);
+          host.el.appendChild(button);
         }
       }
       return true;
@@ -172,10 +197,15 @@
     return true;
   }
 
+  // Deliberately does NOT compare against findHost(): that re-queries and
+  // returns a different element object whenever the workbench re-renders
+  // the title bar, so an identity check reports "not settled" forever and
+  // the guard below relocates the button every tick. Moving it mid-click
+  // makes the browser drop the click. Being somewhere in the title bar is
+  // the whole requirement.
   function settled() {
     if (!button || !button.isConnected) return false;
-    var host = findHost();
-    return !!host && button.parentNode === host.el;
+    return !!button.closest(".part.titlebar");
   }
 
   // Cheap long-lived guard. A subtree observer on <body> would fire on
@@ -184,7 +214,7 @@
   function watch() {
     setInterval(function () {
       if (!settled()) mount();
-    }, 2000);
+    }, 5000);
   }
 
   function start() {

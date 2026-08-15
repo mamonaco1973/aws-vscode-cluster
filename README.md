@@ -14,7 +14,7 @@ Key capabilities demonstrated:
 2. **EFS-Backed Home Directories** – EFS mounted at `/home`, so a user's files follow them regardless of which node serves their session.
 3. **Mini Active Directory Integration** – A Samba-based mini-AD domain controller provides authentication and DNS, so VS Code logins are domain-based and centrally managed.
 
-> **Note:** The architecture diagram has not yet been regenerated for this project. The `.drawio` source from the RStudio version was removed rather than left stale.
+![diagram](aws-vscode-cluster.png)
 
 ## Prerequisites
 
@@ -144,13 +144,15 @@ This project deliberately uses only the open-source path, which is what makes se
 |-----------|---------|-------|
 | `code-server` | MIT (Coder) | Installed from the official upstream script |
 | Extension gallery | Open VSX (Eclipse) | Pinned explicitly in `/etc/vscode-gallery.env` |
-| Session broker | This repository | Written for this project |
+| Session broker | MIT ([LICENSE](LICENSE)) | Written for this project |
 
 **Do not repoint `EXTENSIONS_GALLERY` at Microsoft's Marketplace.** The Marketplace terms permit access only from official Microsoft products, so that one change would make an otherwise lawful deployment non-compliant without altering any code. It is the realistic way this build gets broken — usually by someone chasing a single missing extension.
 
 Microsoft's own `code serve-web` / VS Code Server is under a proprietary license and is **not** interchangeable with `code-server` here, regardless of operating system.
 
 For extensions absent from Open VSX, obtain the `.vsix` from the publisher directly and stage it under `/efs/extensions`, where it is available to every node.
+
+Sideloading is not a workaround for the paragraph above. Gallery terms and extension terms are separate: several Microsoft-published extensions — C/C++, C# Dev Kit, Pylance, Remote Development, Live Share — are licensed for use only with Microsoft's own VS Code products, and that restriction follows the extension regardless of where the VSIX came from. For every other publisher, staging a VSIX obtained from them directly is fine.
 
 ### Trust the Certificate
 

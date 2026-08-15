@@ -26,6 +26,12 @@
   opacity: 0.85;
   transition: opacity 120ms ease-in-out, background-color 120ms ease-in-out;
 
+  /* The title bar spans an absolutely-positioned drag-handle element.
+   * Without its own stacking context this button can end up underneath it,
+   * and clicks land on the drag region instead of the control. */
+  position: relative;
+  z-index: 2;
+
   /* Title bar is a drag region in the desktop build; opt this control out. */
   -webkit-app-region: no-drag;
 }
