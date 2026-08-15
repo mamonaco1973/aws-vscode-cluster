@@ -1,39 +1,71 @@
 /* Sign-out control injected into the workbench document.
  *
- * Sits above the status bar in the bottom-right corner and stays faded
- * until hovered — the editor owns the whole viewport, so anything opaque
- * is permanently in the user's way. */
+ * Lives in the title bar, immediately left of the layout controls, and
+ * borrows the workbench's own theme variables so it tracks light/dark and
+ * custom themes instead of announcing itself as a foreign element. */
 
 #broker-signout {
-  position: fixed;
-  right: 12px;
-  bottom: 34px; /* Clears code-server's status bar. */
-  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  gap: 5px;
 
-  padding: 4px 10px;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  font-size: 11px;
-  line-height: 1.4;
+  height: 22px;
+  margin: 0 6px;
+  padding: 0 8px;
 
-  color: #fff;
-  background: #0e639c;
+  font-family: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+
+  color: var(--vscode-titleBar-activeForeground, #ccc);
+  background: transparent;
   border: 0;
-  border-radius: 3px;
+  border-radius: 5px;
   cursor: pointer;
 
-  opacity: 0.35;
-  transition: opacity 120ms ease-in-out;
+  opacity: 0.85;
+  transition: opacity 120ms ease-in-out, background-color 120ms ease-in-out;
+
+  /* Title bar is a drag region in the desktop build; opt this control out. */
+  -webkit-app-region: no-drag;
 }
 
 #broker-signout:hover,
 #broker-signout:focus-visible {
   opacity: 1;
+  background: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
+}
+
+#broker-signout svg {
+  width: 13px;
+  height: 13px;
+  flex: none;
 }
 
 /* Keyboard users need to see focus even before hovering. */
 #broker-signout:focus-visible {
-  outline: 2px solid #fff;
-  outline-offset: 1px;
+  outline: 1px solid var(--vscode-focusBorder, #3794ff);
+  outline-offset: -1px;
+}
+
+/* Fallback for a workbench with no title bar to mount into (custom title
+ * bar disabled, or a code-server release that renames the part). Floats
+ * top-right instead; opaque, because it sits over editor content. */
+#broker-signout.broker-floating {
+  position: fixed;
+  top: 6px;
+  right: 12px;
+  z-index: 2147483647;
+
+  color: #fff;
+  background: #0e639c;
+  opacity: 0.5;
+}
+
+#broker-signout.broker-floating:hover,
+#broker-signout.broker-floating:focus-visible {
+  background: #1177bb;
+  opacity: 1;
 }
 
 

@@ -97,21 +97,112 @@
     cancel.focus();
   }
 
-  function build() {
-    var button = document.createElement("button");
-    button.id = "broker-signout";
-    button.type = "button";
-    button.title = "Sign out and stop your session";
-    button.setAttribute("aria-label", "Sign out");
-    button.textContent = "Sign out";
-    button.addEventListener("click", openModal);
+  // Title bar regions, best host first. code-server has renamed these
+  // across releases, so fall through rather than depend on one selector.
+  var HOSTS = [
+    ".monaco-workbench .part.titlebar .titlebar-right",
+    ".monaco-workbench .part.titlebar .titlebar-container",
+    ".monaco-workbench .part.titlebar"
+  ];
 
-    document.body.appendChild(button);
+  var MOUNT_TIMEOUT_MS = 20000;
+
+  var button = null;
+  var deadline = 0;
+
+  function findHost() {
+    for (var i = 0; i < HOSTS.length; i++) {
+      var host = document.querySelector(HOSTS[i]);
+      if (host) return host;
+    }
+    return null;
+  }
+
+  function build() {
+    var el = document.createElement("button");
+    el.id = "broker-signout";
+    el.type = "button";
+    el.title = "Sign out and stop your session";
+    el.setAttribute("aria-label", "Sign out");
+
+    // Inline SVG rather than a codicon: the icon font is code-server's,
+    // and its glyph names are not a stable contract for us.
+    el.innerHTML =
+      '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" ' +
+      'stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" ' +
+      'aria-hidden="true"><path d="M6 14H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1h3"/>' +
+      '<path d="m10.5 11 3-3-3-3"/><path d="M13.5 8H6"/></svg>' +
+      "<span>Sign out</span>";
+
+    el.addEventListener("click", openModal);
+    return el;
+  }
+
+  // Mount into the title bar, or float if it never shows up. Returns true
+  // once the control is parented somewhere and needs no further attempts.
+  function mount() {
+    if (!button) button = build();
+
+    var host = findHost();
+
+    if (host) {
+      // First child, so it lands left of the layout/window controls.
+      if (button.parentNode !== host) {
+        button.classList.remove("broker-floating");
+        host.insertBefore(button, host.firstChild);
+      }
+      return true;
+    }
+
+    // The workbench boots well after DOMContentLoaded; keep waiting before
+    // conceding. Losing the button entirely would strand the session.
+    if (Date.now() < deadline) return false;
+
+    if (!button.isConnected) {
+      button.classList.add("broker-floating");
+      document.body.appendChild(button);
+    }
+    return true;
+  }
+
+  function settled() {
+    return button && button.isConnected && button.parentNode === findHost();
+  }
+
+  // Cheap long-lived guard. A subtree observer on <body> would fire on
+  // essentially every workbench render, so watch on an interval instead
+  // and only touch the DOM when the button has actually gone missing.
+  function watch() {
+    setInterval(function () {
+      if (!settled()) mount();
+    }, 2000);
+  }
+
+  function start() {
+    deadline = Date.now() + MOUNT_TIMEOUT_MS;
+
+    if (mount()) {
+      watch();
+      return;
+    }
+
+    // Until the workbench renders there is nothing to mount into, so watch
+    // the DOM closely — but only for that window, then drop to the guard.
+    var observer = new MutationObserver(function () {
+      if (settled()) return;
+
+      if (mount()) {
+        observer.disconnect();
+        watch();
+      }
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
   }
 
   if (document.readyState === "loading") {
-    window.addEventListener("DOMContentLoaded", build);
+    window.addEventListener("DOMContentLoaded", start);
   } else {
-    build();
+    start();
   }
 })();
