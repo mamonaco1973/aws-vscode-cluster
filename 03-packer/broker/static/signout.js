@@ -99,10 +99,13 @@
 
   // Title bar regions, best host first. code-server has renamed these
   // across releases, so fall through rather than depend on one selector.
+  // "end" appends after the menu icon in the left group; "start" is for
+  // the fallback hosts, where first-child is the nearest equivalent spot.
   var HOSTS = [
-    ".monaco-workbench .part.titlebar .titlebar-right",
-    ".monaco-workbench .part.titlebar .titlebar-container",
-    ".monaco-workbench .part.titlebar"
+    { sel: ".monaco-workbench .part.titlebar .titlebar-left", place: "end" },
+    { sel: ".monaco-workbench .part.titlebar .titlebar-container",
+      place: "start" },
+    { sel: ".monaco-workbench .part.titlebar", place: "start" }
   ];
 
   var MOUNT_TIMEOUT_MS = 20000;
@@ -112,8 +115,8 @@
 
   function findHost() {
     for (var i = 0; i < HOSTS.length; i++) {
-      var host = document.querySelector(HOSTS[i]);
-      if (host) return host;
+      var el = document.querySelector(HOSTS[i].sel);
+      if (el) return { el: el, place: HOSTS[i].place };
     }
     return null;
   }
@@ -146,10 +149,14 @@
     var host = findHost();
 
     if (host) {
-      // First child, so it lands left of the layout/window controls.
-      if (button.parentNode !== host) {
+      if (button.parentNode !== host.el) {
         button.classList.remove("broker-floating");
-        host.insertBefore(button, host.firstChild);
+
+        if (host.place === "end") {
+          host.el.appendChild(button);
+        } else {
+          host.el.insertBefore(button, host.el.firstChild);
+        }
       }
       return true;
     }
@@ -166,7 +173,9 @@
   }
 
   function settled() {
-    return button && button.isConnected && button.parentNode === findHost();
+    if (!button || !button.isConnected) return false;
+    var host = findHost();
+    return !!host && button.parentNode === host.el;
   }
 
   // Cheap long-lived guard. A subtree observer on <body> would fire on
