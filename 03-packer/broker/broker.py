@@ -36,6 +36,7 @@ import os
 import pwd
 import re
 import secrets
+import shutil
 import socket
 import subprocess
 import time
@@ -83,6 +84,12 @@ SPAWN_TIMEOUT_SECONDS = 90
 # build, and in practice carries EXTENSIONS_GALLERY — the setting that keeps
 # extension installs pointed at Open VSX rather than Microsoft's Marketplace.
 GALLERY_ENV_FILE = os.environ.get("GALLERY_ENV_FILE", "/etc/vscode-gallery.env")
+
+# Seeded into a user's settings.json the first time their state directory is
+# created, and never touched again. Written by the AMI build; see vscode.sh
+# for why extension auto-update is off.
+DEFAULT_SETTINGS_FILE = os.environ.get(
+    "DEFAULT_SETTINGS_FILE", "/etc/vscode-default-settings.json")
 
 # Login page assets. Served from disk rather than inlined so the sign-in page
 # looks like an application rather than a single self-contained document —
@@ -180,14 +187,19 @@ class SessionManager:
         return args
 
     @staticmethod
-    def _unit_active(unit: str) -> bool:
+    async def _unit_active(unit: str) -> bool:
         """Report whether systemd considers the unit running or starting.
 
         "activating" counts as alive: a second request arriving while the
         first is still spawning must wait for that unit rather than try to
         start a duplicate, which systemd would reject as a name collision.
+
+        Threaded: this forks systemctl, and the broker runs a single uvicorn
+        worker. Anything blocking here stalls the WebSocket pump for every
+        user on the node, not just the caller.
         """
-        result = subprocess.run(
+        result = await asyncio.to_thread(
+            subprocess.run,
             ["systemctl", "is-active", f"{unit}.service"],
             capture_output=True,
             text=True,
@@ -197,7 +209,13 @@ class SessionManager:
     def _port_in_use(self, port: int) -> bool:
         """Report whether anything is already listening on a loopback port."""
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-            return probe.connect_ex(("127.0.0.1", port)) == 0
+            # Loopback refusals return immediately, but never let a probe
+            # hang the event loop if the kernel decides otherwise.
+            probe.settimeout(0.5)
+            try:
+                return probe.connect_ex(("127.0.0.1", port)) == 0
+            except OSError:
+                return False
 
     def _allocate_port(self) -> int:
         """Return a free loopback port from the configured range.
@@ -217,7 +235,35 @@ class SessionManager:
     # Spawn
     # --------------------------------------------------------------------------
 
-    def _spawn(self, user: str, home: str, port: int) -> str:
+    @staticmethod
+    def _seed_settings(state: str, entry: pwd.struct_passwd) -> None:
+        """Install default editor settings for a brand-new state directory.
+
+        Only ever writes when settings.json is absent, so a user who changes
+        a setting keeps it across sessions and across node replacements.
+
+        Args:
+            state: The user's node-local state directory.
+            entry: passwd entry for the owning user.
+        """
+        if not os.path.isfile(DEFAULT_SETTINGS_FILE):
+            return
+
+        user_dir = os.path.join(state, "data", "User")
+        settings = os.path.join(user_dir, "settings.json")
+
+        if os.path.exists(settings):
+            return
+
+        os.makedirs(user_dir, exist_ok=True)
+        shutil.copyfile(DEFAULT_SETTINGS_FILE, settings)
+
+        # code-server runs as the user, so everything it will later rewrite
+        # has to belong to them.
+        for path in (os.path.join(state, "data"), user_dir, settings):
+            os.chown(path, entry.pw_uid, entry.pw_gid)
+
+    async def _spawn(self, user: str, home: str, port: int) -> str:
         """Launch code-server as `user` in a transient systemd unit.
 
         Args:
@@ -238,16 +284,20 @@ class SessionManager:
         # sessions that systemd still has loaded. Clear the unit name before
         # claiming it — otherwise systemd rejects the duplicate and every
         # user with a live session is locked out until someone intervenes.
-        subprocess.run(["systemctl", "stop", f"{unit}.service"],
-                       capture_output=True, text=True)
-        subprocess.run(["systemctl", "reset-failed", f"{unit}.service"],
-                       capture_output=True, text=True)
+        await asyncio.to_thread(
+            subprocess.run, ["systemctl", "stop", f"{unit}.service"],
+            capture_output=True, text=True)
+        await asyncio.to_thread(
+            subprocess.run, ["systemctl", "reset-failed", f"{unit}.service"],
+            capture_output=True, text=True)
 
         # State (SQLite) stays on local disk; only user files live on EFS.
         os.makedirs(state, exist_ok=True)
         entry = pwd.getpwnam(user)
         os.chown(state, entry.pw_uid, entry.pw_gid)
         os.chmod(state, 0o700)
+
+        self._seed_settings(state, entry)
 
         command = [
             "systemd-run",
@@ -276,7 +326,8 @@ class SessionManager:
             home,
         ]
 
-        result = subprocess.run(command, capture_output=True, text=True)
+        result = await asyncio.to_thread(
+            subprocess.run, command, capture_output=True, text=True)
 
         if result.returncode != 0:
             raise RuntimeError(
@@ -311,7 +362,7 @@ class SessionManager:
             session = self._sessions.get(user)
 
             # A recorded session is only real if systemd still agrees.
-            if session and self._unit_active(session.unit):
+            if session and await self._unit_active(session.unit):
                 session.last_seen = time.monotonic()
                 return session
 
@@ -323,11 +374,14 @@ class SessionManager:
 
             # PAM's pam_exec hook creates the home directory on first login;
             # this covers the case where a session is started some other way.
+            # Threaded: this one writes a home directory to EFS, so it is the
+            # slowest blocking call in the path.
             if not os.path.isdir(home):
-                subprocess.run(["su", "-c", "exit", user], check=False)
+                await asyncio.to_thread(
+                    subprocess.run, ["su", "-c", "exit", user], check=False)
 
             port = self._allocate_port()
-            unit = self._spawn(user, home, port)
+            unit = await self._spawn(user, home, port)
 
             session = Session(user=user, port=port, unit=unit, home=home)
             self._sessions[user] = session
@@ -380,7 +434,8 @@ class SessionManager:
             session = self._sessions.pop(user, None)
 
         unit = session.unit if session else self._unit_name(user)
-        subprocess.run(
+        await asyncio.to_thread(
+            subprocess.run,
             ["systemctl", "stop", f"{unit}.service"],
             capture_output=True,
             text=True,

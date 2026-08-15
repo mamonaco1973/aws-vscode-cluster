@@ -64,6 +64,26 @@ EOF
 chmod 0644 /etc/vscode-gallery.env
 
 # ------------------------------------------------------------------------------
+# Default editor settings
+# ------------------------------------------------------------------------------
+# Seeded by the broker into each user's settings.json the first time their
+# state directory is created, then left alone — a user who changes one of
+# these keeps their change.
+#
+# Extension auto-update is OFF deliberately. Every workbench load otherwise
+# queries the gallery, which leaves the node through the NAT gateway; a slow
+# or hanging lookup stalls the extension host and the editor stops responding
+# for as long as it takes. Users can still install and update on demand.
+cat <<'EOF' | tee /etc/vscode-default-settings.json > /dev/null
+{
+  "extensions.autoUpdate": false,
+  "extensions.autoCheckUpdates": false
+}
+EOF
+
+chmod 0644 /etc/vscode-default-settings.json
+
+# ------------------------------------------------------------------------------
 # Node-local per-user state root
 # ------------------------------------------------------------------------------
 # code-server keeps its state in SQLite. SQLite over NFS is the classic
