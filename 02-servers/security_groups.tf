@@ -96,6 +96,20 @@ resource "aws_security_group" "ad_ssh_sg" {
   }
 
   # --------------------------------------------------------------------------
+  # Ingress: standalone code-server (TCP 9090)
+  # --------------------------------------------------------------------------
+  # For running a single-user code-server by hand on this host — the stock
+  # deployment the cluster exists to improve on. Nothing in the cluster uses
+  # this port.
+  ingress {
+    description = "Allow standalone code-server from anywhere (lab only)"
+    from_port   = 9090
+    to_port     = 9090
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # --------------------------------------------------------------------------
   # Ingress: ICMP (Ping)
   # --------------------------------------------------------------------------
   ingress {

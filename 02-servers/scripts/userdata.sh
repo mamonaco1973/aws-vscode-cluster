@@ -69,6 +69,12 @@ echo -e "$admin_password" | sudo /usr/sbin/realm join --membership-software=samb
 sudo sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' \
     /etc/ssh/sshd_config.d/60-cloudimg-settings.conf
 
+# Give the local ubuntu account the AD admin password. No EC2 key pair is
+# attached to this host, so without this the only way in is an SSM session,
+# and ubuntu cannot log in interactively at all. Reuses the admin secret
+# rather than minting another one — lab convenience, not a pattern to copy.
+echo "ubuntu:$admin_password" | sudo chpasswd
+
 sudo sed -i 's/use_fully_qualified_names = True/use_fully_qualified_names = False/g' \
     /etc/sssd/sssd.conf
 sudo sed -i 's/ldap_id_mapping = True/ldap_id_mapping = False/g' \
