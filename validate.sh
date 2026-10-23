@@ -7,6 +7,7 @@
 #     - Windows AD Administration host (public DNS for RDP access)
 #     - Linux EFS/Samba gateway host (public DNS / public IP)
 #     - VS Code Application Load Balancer endpoint (HTTPS)
+#     - Test user jsmith's credentials
 #
 # Notes:
 #   - Requires AWS CLI configured with appropriate permissions.
@@ -114,6 +115,26 @@ else
     print_line "Session Broker" \
       "WARNING: /healthz returned '${health}' - targets may still be booting"
   fi
+fi
+
+# ------------------------------------------------------------------------------
+# Test User Credentials
+# ------------------------------------------------------------------------------
+# Lab convenience: prints a real password to the terminal. The secret stores
+# the down-level name (VSCODE\jsmith); the broker expects the bare username.
+jsmith_secret="$(aws secretsmanager get-secret-value \
+  --secret-id jsmith_ad_credentials_vscode \
+  --query SecretString \
+  --output text 2>/dev/null || true)"
+
+if [ -z "${jsmith_secret}" ]; then
+  print_line "jsmith Credentials" \
+    "WARNING: jsmith_ad_credentials_vscode not found"
+else
+  print_line "jsmith Username" \
+    "$(echo "${jsmith_secret}" | jq -r '.username' | sed 's/.*\\//')"
+  print_line "jsmith Password" \
+    "$(echo "${jsmith_secret}" | jq -r '.password')"
 fi
 
 echo ""

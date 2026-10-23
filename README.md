@@ -103,7 +103,7 @@ When the deployment completes, the following resources are created:
   - Application Load Balancer terminating HTTPS and forwarding to the broker on port 8080, with a one-day stickiness cookie
 
 - **Validation:**
-  - `./validate.sh` reports the URL and the admin hosts' addresses, and confirms the broker answers `/healthz`
+  - `./validate.sh` reports the URL and the admin hosts' addresses, confirms the broker answers `/healthz`, and prints `jsmith`'s credentials
 
 ## How It Works
 
@@ -236,7 +236,7 @@ All groups are Security / Universal, created in `CN=Users` of the `vscode.mikecl
 | rpatel   | Raj Patel   | 10003     | 10001     | vscode-users, india, linux-admins, Domain Admins |
 | akumar   | Amit Kumar  | 10004     | 10001     | vscode-users, india |
 
-The users get easy-to-type `<word>-<number>` passwords (for example `orange-481920`), stored in Secrets Manager as `<user>_ad_credentials_vscode`.
+The users get easy-to-type `<word>-<number>` passwords (for example `orange-481920`), stored in Secrets Manager as `<user>_ad_credentials_vscode`; `./validate.sh` prints `jsmith`'s.
 
 Membership in **vscode-users** is what grants a session: the broker enforces it with `REQUIRED_GROUP`, on top of the SSSD `simple_allow_groups` restriction applied at domain join. Because it is every test user's primary group, all four can sign in.
 
