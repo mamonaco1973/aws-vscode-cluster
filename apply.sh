@@ -65,7 +65,9 @@ cd 01-directory || {
   exit 1
 }
 
-terraform init
+# -upgrade re-fetches the mini-AD module from GitHub. Plain init keeps the
+# copy cached in .terraform/modules and would miss changes pushed since.
+terraform init -upgrade
 terraform apply -auto-approve
 
 cd ..
