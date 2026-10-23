@@ -8,7 +8,6 @@
 #
 # Scope:
 #   - AWS provider configuration
-#   - Secrets Manager lookup (AD admin credentials)
 #   - Subnet and VPC discovery
 #   - Latest custom VS Code AMI lookup
 #   - IAM instance profile lookup
@@ -27,15 +26,6 @@
 
 provider "aws" {
   region = "us-east-1"
-}
-
-
-# ================================================================================
-# SECTION: Secrets Manager - AD Admin Credentials
-# ================================================================================
-
-data "aws_secretsmanager_secret" "admin_secret" {
-  name = "admin_ad_credentials_vscode"
 }
 
 
@@ -92,17 +82,6 @@ data "aws_subnet" "pub_subnet_2" {
   filter {
     name   = "tag:Name"
     values = ["pub-subnet-2"]
-  }
-  filter {
-    name   = "vpc-id"
-    values = [data.aws_vpc.ad_vpc.id]
-  }
-}
-
-data "aws_subnet" "ad_subnet" {
-  filter {
-    name   = "tag:Name"
-    values = ["ad-subnet"]
   }
   filter {
     name   = "vpc-id"

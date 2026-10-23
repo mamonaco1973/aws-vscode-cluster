@@ -38,9 +38,6 @@
 # Target AWS region.
 export AWS_DEFAULT_REGION="us-east-1"
 
-# Active Directory DNS zone.
-DNS_ZONE="vscode.mikecloud.com"
-
 # Fail on errors, unset variables, and pipe failures.
 set -euo pipefail
 

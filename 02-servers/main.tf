@@ -70,34 +70,10 @@ data "aws_subnet" "vm_subnet_1" {
   }
 }
 
-data "aws_subnet" "vm_subnet_2" {
-  filter {
-    name   = "tag:Name"
-    values = ["vm-subnet-2"]
-  }
-
-  filter {
-    name   = "vpc-id"
-    values = [data.aws_vpc.ad_vpc.id]
-  }
-}
-
 data "aws_subnet" "pub_subnet_1" {
   filter {
     name   = "tag:Name"
     values = ["pub-subnet-1"]
-  }
-
-  filter {
-    name   = "vpc-id"
-    values = [data.aws_vpc.ad_vpc.id]
-  }
-}
-
-data "aws_subnet" "pub_subnet_2" {
-  filter {
-    name   = "tag:Name"
-    values = ["pub-subnet-2"]
   }
 
   filter {

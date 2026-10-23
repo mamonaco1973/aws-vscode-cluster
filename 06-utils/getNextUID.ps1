@@ -1,6 +1,7 @@
 # ============================================================================================
 # Script Name : getNextUID.ps1
-# Description : Retrieves the next available UID number from the VS Code cluster service.
+# Description : Retrieves the next available UID number from the mini-AD domain controller's
+#               nextids service.
 # ============================================================================================
 
 # --------------------------------------------------------------------------------------------
@@ -8,9 +9,9 @@
 # - The endpoint returns a JSON payload containing UID/GID allocation information.
 # - Example JSON Response:
 #   {
-#       "max_gidNumber": 10005,
+#       "max_gidNumber": 10004,
 #       "max_uidNumber": 10004,
-#       "next_gidNumber": 10006,
+#       "next_gidNumber": 10005,
 #       "next_uidNumber": 10005
 #   }
 # --------------------------------------------------------------------------------------------

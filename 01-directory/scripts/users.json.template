@@ -8,8 +8,7 @@
     { "name": "${lower(NETBIOS)}-users",  "gidNumber": 10001 },
     { "name": "us",             "gidNumber": 10002 },
     { "name": "india",          "gidNumber": 10003 },
-    { "name": "linux-admins",   "gidNumber": 10004 },
-    { "name": "vscode-admins", "gidNumber": 10005 }
+    { "name": "linux-admins",   "gidNumber": 10004 }
   ],
   "users": [
     {
@@ -20,7 +19,7 @@
       "uidNumber": 10001,
       "gidNumber": 10001,
       "primaryGroup": "${lower(NETBIOS)}-users",
-      "extraGroups": ["us", "linux-admins", "vscode-admins", "Domain Admins"]
+      "extraGroups": ["us", "linux-admins", "Domain Admins"]
     },
     {
       "username": "edavis",
@@ -40,7 +39,7 @@
       "uidNumber": 10003,
       "gidNumber": 10001,
       "primaryGroup": "${lower(NETBIOS)}-users",
-      "extraGroups": ["india", "linux-admins", "vscode-admins", "Domain Admins"]
+      "extraGroups": ["india", "linux-admins", "Domain Admins"]
     },
     {
       "username": "akumar",
