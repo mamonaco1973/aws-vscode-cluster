@@ -16,7 +16,7 @@
 # Operational Notes:
 #   - NAT and route associations must exist before instance bootstrap.
 #   - users_json is rendered at apply time and passed to cloud-init.
-#   - Passwords originate from random_password resources in accounts.tf.
+#   - Passwords originate from accounts.tf (random admin, word-number users).
 #
 # ================================================================================
 
@@ -57,9 +57,9 @@ locals {
     DNS_ZONE        = var.dns_zone
     REALM           = var.realm
     NETBIOS         = var.netbios
-    jsmith_password = random_password.jsmith_password.result
-    edavis_password = random_password.edavis_password.result
-    rpatel_password = random_password.rpatel_password.result
-    akumar_password = random_password.akumar_password.result
+    jsmith_password = local.passwords["jsmith"]
+    edavis_password = local.passwords["edavis"]
+    rpatel_password = local.passwords["rpatel"]
+    akumar_password = local.passwords["akumar"]
   })
 }

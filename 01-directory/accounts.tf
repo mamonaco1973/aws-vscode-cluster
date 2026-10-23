@@ -13,10 +13,12 @@
 #   - Secrets are permitted to be destroyed during environment teardown.
 #
 # Security Notes:
-#   - Password length set to 24 characters to exceed AD complexity standards.
-#   - Special characters enabled to increase entropy.
-#   - Administrator override_special restricted for automation safety.
-#   - User override_special allows broader complexity character set.
+#   - Administrator: a strong 24-character random password, used by
+#     automation for the domain join and never typed.
+#   - Users: friendly "<word>-<number>" passwords (e.g. orange-481920) so
+#     they are easy to type at the VS Code / desktop login during a demo.
+#     lower + digit + "-" satisfies AD's 3-of-4 complexity rule, and the
+#     leading word means samba-tool never mistakes one for an option.
 #
 # ================================================================================
 
@@ -29,7 +31,15 @@
 resource "random_password" "admin_password" {
   length           = 24
   special          = true
-  override_special = "_-."
+  override_special = "_."
+
+  # AD requires 3 of 4 character classes. With only two symbols allowed, a
+  # 24-character draw can easily contain no symbol (and no digit) at all, so
+  # every class is guaranteed rather than left to chance.
+  min_upper   = 1
+  min_lower   = 1
+  min_numeric = 1
+  min_special = 1
 }
 
 # Create AWS Secrets Manager container for Administrator credentials.
@@ -59,15 +69,43 @@ resource "aws_secretsmanager_secret_version" "admin_secret_version" {
 
 
 # --------------------------------------------------------------------------------
-# USER: John Smith (jsmith)
+# Friendly User Passwords: "<word>-<number>"
 # --------------------------------------------------------------------------------
 
-# Generate strong random password for user account.
-resource "random_password" "jsmith_password" {
-  length           = 24
-  special          = true
-  override_special = "!@#$%"
+locals {
+  word_users = toset(["jsmith", "edavis", "rpatel", "akumar"])
+
+  memorable_words = [
+    "bright", "simple", "orange", "window", "little", "people", "friend",
+    "yellow", "animal", "family", "circle", "moment", "summer", "button",
+    "planet", "rocket", "silver", "forest", "stream", "butter", "castle",
+    "wonder", "gentle", "driver", "coffee"
+  ]
 }
+
+resource "random_shuffle" "word" {
+  for_each     = local.word_users
+  input        = local.memorable_words
+  result_count = 1
+}
+
+resource "random_integer" "num" {
+  for_each = local.word_users
+  min      = 100000
+  max      = 999999
+}
+
+locals {
+  passwords = {
+    for user in local.word_users :
+    user => format("%s-%d", random_shuffle.word[user].result[0], random_integer.num[user].result)
+  }
+}
+
+
+# --------------------------------------------------------------------------------
+# USER: John Smith (jsmith)
+# --------------------------------------------------------------------------------
 
 # Create Secrets Manager container for user credentials.
 resource "aws_secretsmanager_secret" "jsmith_secret" {
@@ -85,7 +123,7 @@ resource "aws_secretsmanager_secret_version" "jsmith_secret_version" {
 
   secret_string = jsonencode({
     username = "${var.netbios}\\jsmith"
-    password = random_password.jsmith_password.result
+    password = local.passwords["jsmith"]
   })
 }
 
@@ -93,13 +131,6 @@ resource "aws_secretsmanager_secret_version" "jsmith_secret_version" {
 # --------------------------------------------------------------------------------
 # USER: Emily Davis (edavis)
 # --------------------------------------------------------------------------------
-
-# Generate strong random password for user account.
-resource "random_password" "edavis_password" {
-  length           = 24
-  special          = true
-  override_special = "!@#$%"
-}
 
 # Create Secrets Manager container for user credentials.
 resource "aws_secretsmanager_secret" "edavis_secret" {
@@ -117,7 +148,7 @@ resource "aws_secretsmanager_secret_version" "edavis_secret_version" {
 
   secret_string = jsonencode({
     username = "${var.netbios}\\edavis"
-    password = random_password.edavis_password.result
+    password = local.passwords["edavis"]
   })
 }
 
@@ -125,13 +156,6 @@ resource "aws_secretsmanager_secret_version" "edavis_secret_version" {
 # --------------------------------------------------------------------------------
 # USER: Raj Patel (rpatel)
 # --------------------------------------------------------------------------------
-
-# Generate strong random password for user account.
-resource "random_password" "rpatel_password" {
-  length           = 24
-  special          = true
-  override_special = "!@#$%"
-}
 
 # Create Secrets Manager container for user credentials.
 resource "aws_secretsmanager_secret" "rpatel_secret" {
@@ -149,7 +173,7 @@ resource "aws_secretsmanager_secret_version" "rpatel_secret_version" {
 
   secret_string = jsonencode({
     username = "${var.netbios}\\rpatel"
-    password = random_password.rpatel_password.result
+    password = local.passwords["rpatel"]
   })
 }
 
@@ -157,13 +181,6 @@ resource "aws_secretsmanager_secret_version" "rpatel_secret_version" {
 # --------------------------------------------------------------------------------
 # USER: Amit Kumar (akumar)
 # --------------------------------------------------------------------------------
-
-# Generate strong random password for user account.
-resource "random_password" "akumar_password" {
-  length           = 24
-  special          = true
-  override_special = "!@#$%"
-}
 
 # Create Secrets Manager container for user credentials.
 resource "aws_secretsmanager_secret" "akumar_secret" {
@@ -181,6 +198,6 @@ resource "aws_secretsmanager_secret_version" "akumar_secret_version" {
 
   secret_string = jsonencode({
     username = "${var.netbios}\\akumar"
-    password = random_password.akumar_password.result
+    password = local.passwords["akumar"]
   })
 }
